@@ -1,0 +1,91 @@
+{
+	"name": "code-core",
+	"displayName": "CODE CORE",
+	"description": "Gamified coding. Level up your development.",
+	"version": "0.1.0",
+	"publisher": "your-publisher",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/yourusername/code-core"
+	},
+	"engines": {
+		"vscode": "^1.74.0"
+	},
+	"categories": [
+		"Other",
+		"Visualization"
+	],
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"main": "./src/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "codecore.openDashboard",
+				"title": "Open Dashboard",
+				"category": "CODE CORE"
+			},
+			{
+				"command": "codecore.toggleFocusMode",
+				"title": "Toggle Focus Mode",
+				"category": "CODE CORE"
+			},
+			{
+				"command": "codecore.resetProgress",
+				"title": "Reset Progress (Debug)",
+				"category": "CODE CORE"
+			}
+		],
+		"views": {
+			"explorer": [
+				{
+					"id": "codecore.sidebar",
+					"name": "CODE CORE",
+					"when": "true",
+					"type": "webview"
+				}
+			]
+		},
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "codecore",
+					"title": "CODE CORE",
+					"icon": "$(zap)"
+				}
+			]
+		},
+		"configuration": {
+			"title": "CODE CORE",
+			"properties": {
+				"codecore.soundEnabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable sound effects"
+				},
+				"codecore.soundVolume": {
+					"type": "number",
+					"default": 0.5,
+					"minimum": 0,
+					"maximum": 1
+				},
+				"codecore.showStatusBar": {
+					"type": "boolean",
+					"default": true,
+					"description": "Show status bar display"
+				}
+			}
+		}
+	},
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"devDependencies": {
+		"@types/vscode": "^1.74.0"
+	},
+	"dependencies": {
+		"eslint": "^10.0.2",
+		"globals": "^17.4.0"
+	}
+}

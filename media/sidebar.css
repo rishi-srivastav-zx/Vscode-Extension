@@ -1,0 +1,542 @@
+@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap");
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --accent: #00e5ff;
+    --accent-dim: #00e5ff18;
+    --accent-mid: #00e5ff66;
+    --bg: #0d0f14;
+    --bg2: #131720;
+    --bg3: #1a2030;
+    --border: #ffffff0d;
+    --border-hover: #ffffff22;
+    --text: #e8eaf0;
+    --muted: #5a6478;
+    --legendary: #fbbf24;
+    --epic: #a78bfa;
+    --rare: #60a5fa;
+    --uncommon: #34d399;
+    --common: #6b7280;
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Rajdhani", sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    overflow-x: hidden;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ─── SCANLINE ─── */
+body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.04) 2px,
+        rgba(0, 0, 0, 0.04) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+}
+
+/* ─── WRAP ─── */
+.wrap {
+    max-width: 340px;
+    margin: 0 auto;
+    padding: 16px 14px 40px;
+}
+
+/* ─── HEADER ─── */
+.header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 18px;
+    animation: fadeDown 0.5s ease both;
+}
+
+.avatar {
+    position: relative;
+    width: 54px;
+    height: 54px;
+    flex-shrink: 0;
+}
+
+.avatar-inner {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, var(--bg3), var(--bg2));
+    border: 1.5px solid var(--accent);
+    border-radius: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 0 18px var(--accent-dim), inset 0 0 14px var(--accent-dim);
+}
+
+.avatar-inner::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        135deg,
+        var(--accent-mid) 0%,
+        transparent 55%
+    );
+    opacity: 0.18;
+    border-radius: 12px;
+}
+
+.avatar-ping {
+    position: absolute;
+    inset: -5px;
+    border-radius: 16px;
+    border: 1px solid var(--accent);
+    opacity: 0;
+    animation: ping 2.8s ease-out infinite;
+}
+
+.avatar-ping2 {
+    position: absolute;
+    inset: -5px;
+    border-radius: 16px;
+    border: 1px solid var(--accent);
+    opacity: 0;
+    animation: ping 2.8s 1.4s ease-out infinite;
+}
+
+.level-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.level-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: "Share Tech Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-mid);
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+}
+
+.level-badge-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: blink 1.4s step-end infinite;
+}
+
+.level-num {
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+    letter-spacing: -0.5px;
+}
+
+.level-title {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ─── XP BAR ─── */
+.xp-section {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 11px 13px;
+    margin-bottom: 10px;
+    animation: fadeUp 0.5s 0.1s ease both;
+}
+
+.xp-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.xp-label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.xp-nums {
+    font-family: "Share Tech Mono", monospace;
+    font-size: 11px;
+    color: var(--accent);
+}
+
+.bar-track {
+    height: 5px;
+    background: var(--bg3);
+    border-radius: 99px;
+    position: relative;
+}
+
+.bar-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, var(--accent-mid), var(--accent));
+    transition: width 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    box-shadow: 0 0 8px var(--accent);
+    min-width: 0%;
+}
+
+.bar-fill::after {
+    content: "";
+    position: absolute;
+    right: -1px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent), 0 0 14px var(--accent);
+}
+
+/* ─── STAT CARDS ─── */
+.cards-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 7px;
+    margin-bottom: 10px;
+    animation: fadeUp 0.5s 0.2s ease both;
+}
+
+.card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 9px 8px 8px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s, transform 0.15s;
+    cursor: default;
+}
+
+.card:hover {
+    border-color: var(--accent-mid);
+    transform: translateY(-1px);
+}
+
+.card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        135deg,
+        var(--accent-dim) 0%,
+        transparent 65%
+    );
+    opacity: 0;
+    transition: opacity 0.2s;
+    border-radius: 9px;
+}
+
+.card:hover::before {
+    opacity: 1;
+}
+
+.card-icon {
+    font-size: 17px;
+    display: block;
+    margin-bottom: 3px;
+    line-height: 1;
+}
+
+.card-val {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    display: block;
+    font-family: "Share Tech Mono", monospace;
+    line-height: 1.2;
+}
+
+.card-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    display: block;
+    margin-top: 2px;
+}
+
+/* ─── DIVIDER ─── */
+.divider {
+    height: 1px;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        var(--accent-mid),
+        transparent
+    );
+    margin: 14px 0;
+    animation: fadeUp 0.5s 0.3s ease both;
+}
+
+/* ─── ACHIEVEMENTS ─── */
+.ach-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    animation: fadeUp 0.5s 0.35s ease both;
+}
+
+.ach-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.ach-count {
+    font-family: "Share Tech Mono", monospace;
+    font-size: 10px;
+    color: var(--accent);
+    background: var(--accent-dim);
+    padding: 2px 7px;
+    border-radius: 3px;
+    border: 1px solid var(--accent-mid);
+}
+
+.ach-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+    animation: fadeUp 0.5s 0.4s ease both;
+}
+
+.ach-item {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.ach-item:hover {
+    transform: translateY(-2px);
+    z-index: 10;
+}
+
+.ach-item:hover .ach-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.ach-icon {
+    font-size: 15px;
+    position: relative;
+    z-index: 1;
+    line-height: 1;
+}
+
+/* Rarity */
+.ach-item.unlocked.rarity-legendary {
+    background: linear-gradient(135deg, #2d1f0a, #1a1206);
+    border: 1.5px solid var(--legendary);
+    box-shadow: 0 0 8px #fbbf2430, inset 0 0 8px #fbbf2418;
+}
+
+.ach-item.unlocked.rarity-epic {
+    background: linear-gradient(135deg, #1e1530, #110d20);
+    border: 1.5px solid var(--epic);
+    box-shadow: 0 0 8px #a78bfa30, inset 0 0 8px #a78bfa18;
+}
+
+.ach-item.unlocked.rarity-rare {
+    background: linear-gradient(135deg, #0f1f35, #080f1c);
+    border: 1.5px solid var(--rare);
+    box-shadow: 0 0 8px #60a5fa30, inset 0 0 8px #60a5fa18;
+}
+
+.ach-item.unlocked.rarity-uncommon {
+    background: linear-gradient(135deg, #0a1f18, #071410);
+    border: 1.5px solid var(--uncommon);
+    box-shadow: 0 0 8px #34d39930, inset 0 0 8px #34d39918;
+}
+
+.ach-item.unlocked.rarity-common {
+    background: var(--bg3);
+    border: 1.5px solid #374151;
+}
+
+.ach-item.locked {
+    background: var(--bg2);
+    border: 1.5px solid var(--border);
+    opacity: 0.35;
+    filter: grayscale(1);
+}
+
+.ach-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: 7px;
+    background: radial-gradient(circle at center, white 0%, transparent 75%);
+    opacity: 0.06;
+    pointer-events: none;
+}
+
+/* Tooltip */
+.ach-tooltip {
+    position: absolute;
+    bottom: calc(100% + 7px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    background: var(--bg3);
+    border: 1px solid var(--border-hover);
+    border-radius: 7px;
+    padding: 7px 9px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 200;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s, transform 0.15s, visibility 0.15s;
+    pointer-events: none;
+    text-align: left;
+    min-width: 120px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+}
+
+.ach-tooltip::before {
+    content: "";
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 8px;
+    height: 8px;
+    background: var(--bg3);
+    border-right: 1px solid var(--border-hover);
+    border-bottom: 1px solid var(--border-hover);
+    clip-path: polygon(0 0, 100% 100%, 0 100%);
+    rotate: -45deg;
+}
+
+.ach-tooltip strong {
+    display: block;
+    color: var(--text);
+    font-size: 12px;
+    margin-bottom: 2px;
+    font-weight: 600;
+}
+
+.ach-tooltip span {
+    display: block;
+    color: var(--muted);
+    line-height: 1.35;
+    white-space: normal;
+    max-width: 160px;
+}
+
+.ach-tooltip em {
+    display: inline-block;
+    margin-top: 5px;
+    font-style: normal;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.ach-tooltip em.rarity-legendary { color: var(--legendary); }
+.ach-tooltip em.rarity-epic { color: var(--epic); }
+.ach-tooltip em.rarity-rare { color: var(--rare); }
+.ach-tooltip em.rarity-uncommon { color: var(--uncommon); }
+
+/* ─── LOADING ─── */
+.loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    gap: 14px;
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.loading-spinner {
+    width: 28px;
+    height: 28px;
+    border: 2px solid var(--bg3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+/* ─── ANIMATIONS ─── */
+@keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ping {
+    0%   { transform: scale(1);    opacity: 0.6; }
+    70%  { transform: scale(1.3);  opacity: 0; }
+    100% { transform: scale(1.3);  opacity: 0; }
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0; }
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
