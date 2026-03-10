@@ -3,10 +3,10 @@
 	"displayName": "CODE CORE",
 	"description": "Gamified coding. Level up your development.",
 	"version": "0.1.0",
-	"publisher": "your-publisher",
+	"publisher": "Rishi-Srivastav",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/yourusername/code-core"
+		"url": "https://github.com/rishi-srivastav-zx/Vscode-Extension"
 	},
 	"engines": {
 		"vscode": "^1.74.0"
@@ -34,6 +34,26 @@
 			{
 				"command": "codecore.resetProgress",
 				"title": "Reset Progress (Debug)",
+				"category": "CODE CORE"
+			},
+			{
+				"command": "codecore.openMysteryBox",
+				"title": "Open Mystery Box",
+				"category": "CODE CORE"
+			},
+			{
+				"command": "codecore.useBoost",
+				"title": "Use XP Boost",
+				"category": "CODE CORE"
+			},
+			{
+				"command": "codecore.showStats",
+				"title": "Show Stats",
+				"category": "CODE CORE"
+			},
+			{
+				"command": "codecore.claimDaily",
+				"title": "Claim Daily Reward",
 				"category": "CODE CORE"
 			}
 		],
@@ -85,6 +105,8 @@
 		"@types/vscode": "^1.74.0"
 	},
 	"dependencies": {
+		"@supabase/supabase-js": "^2.99.0",
+		"dotenv": "^16.6.1",
 		"eslint": "^10.0.2",
 		"globals": "^17.4.0"
 	}

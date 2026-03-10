@@ -1,4 +1,5 @@
 const vscode = require("vscode");
+console.log("[CODE CORE] Extension loading...");
 const XPSystem = require("./core/XPSystem");
 const LevelSystem = require("./core/LevelSystem");
 const StreakSystem = require("./core/StreakSystem");

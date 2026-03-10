@@ -1,4 +1,13 @@
 const vscode = require("vscode");
+const supabase = require("../supabaseClient/supabaseClient");
+const crypto = require("crypto");
+
+function generateUserId() {
+    const hostname = require('os').hostname();
+    const username = require('os').userInfo().username;
+    const hash = crypto.createHash('md5').update(hostname + '_' + username).digest('hex');
+    return hash.substring(0, 8) + '-' + hash.substring(8, 12) + '-' + hash.substring(12, 16) + '-' + hash.substring(16, 20) + '-' + hash.substring(20, 32);
+}
 
 class ActivityTracker {
     constructor(systems) {
@@ -6,6 +15,20 @@ class ActivityTracker {
         this.disposables = [];
         this.diagnostics = new Map();
         this.lastComboNotification = 0;
+        this.userId = generateUserId();
+    }
+
+    async syncProgress() {
+        if (!supabase.isConfigured()) return;
+        const progress = this.systems.xp.getProgress();
+        const streak = this.systems.streaks.getStreakStatus();
+        await supabase.syncProgress(this.userId, {
+            totalXP: progress.totalXP,
+            level: progress.level,
+            streak: streak.current,
+            longestStreak: streak.longest
+        });
+        await supabase.updateLeaderboard(this.userId, progress.totalXP);
     }
 
     start() {
@@ -58,11 +81,6 @@ class ActivityTracker {
                 this.showComboNotification(result.combo);
             }
 
-            // Handle fatigue warning
-            if (result.fatigue && result.added < 5) {
-                this.showFatigueWarning();
-            }
-
             // Play save sound if not level up (to avoid overlap)
             if (!result.leveledUp) {
                 this.systems.sounds.play("save");
@@ -72,6 +90,7 @@ class ActivityTracker {
         this.updateLanguageStats(doc.languageId);
         this.systems.statusBar.update();
         this.checkAchievements();
+        this.syncProgress();
     }
 
     async onCreate(e) {
@@ -98,6 +117,7 @@ class ActivityTracker {
         this.systems.sounds.play("create");
         this.systems.statusBar.update();
         this.checkAchievements();
+        this.syncProgress();
     }
 
     onDelete() {
@@ -235,6 +255,7 @@ class ActivityTracker {
 
         this.systems.statusBar.update();
         this.checkAchievements();
+        this.syncProgress();
     }
 
     showLevelUpNotification(result) {

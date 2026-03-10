@@ -40,7 +40,8 @@ class SoundEngine {
         }
 
         const fallbacks = {
-            save: "commit",
+            save: "create",
+            commit: "create",
             errorFix: "achievement",
             levelUp: "levelup",
             errorfix: "achievement",
@@ -125,15 +126,13 @@ class SoundEventHandler {
                 const changes = event.contentChanges;
                 if (changes.length === 0) return;
 
-                // Detect paste: multiple changes or large single insert without range overlap
+                // Detect paste: multiple changes or large single insert with rangeLength === 0
                 const isPaste = changes.some((change) => {
-                    // Pasted content is usually larger than 1 char and has specific range pattern
+                    // Pasted content: larger than 10 chars AND rangeLength === 0 (no deletion)
+                    // This distinguishes from typing multiple chars
                     return (
-                        change.text.length > 1 &&
-                        change.rangeLength === 0 &&
-                        change.range.start.line === change.range.end.line &&
-                        change.range.start.character ===
-                            change.range.end.character
+                        change.text.length > 10 &&
+                        change.rangeLength === 0
                     );
                 });
 

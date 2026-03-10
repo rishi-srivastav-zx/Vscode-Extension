@@ -1,21 +1,51 @@
-# CodeSoundFX
+# CODE CORE
 
-Immersive typing sounds for VS Code with distinct audio feedback for typing, deleting, and pasting operations.
+Gamified coding. Level up your development.
 
 ## Features
 
-- 🎹 **Typing Sounds** - Satisfying clicks for every keystroke
-- 🗑️ **Delete Sounds** - Distinct audio for backspace/delete operations  
-- 📋 **Paste Sounds** - Special feedback for clipboard operations
-- 🔊 **Individual Volume Control** - Adjust each sound type independently
-- ⏱️ **Smart Debouncing** - Prevents audio spam when typing fast
-- 🖥️ **Cross-Platform** - Works on Windows, macOS, and Linux
-- 🔕 **Quick Toggle** - Enable/disable from Command Palette
+- **XP System** - Earn XP for coding activities (save, create, fix errors, commits)
+- **Leveling** - Progress through levels with unique titles
+- **Streaks** - Daily coding streaks with bonus rewards
+- **Achievements** - Unlock achievements for milestones
+- **Leaderboard** - Compete with other developers (requires Supabase)
+- **Mystery Boxes** - Earn boxes at level ups and streak milestones
+- **XP Boosts** - Temporary multipliers for faster XP gain
+- **Daily Rewards** - Claim daily XP based on your streak
+- **Sound Effects** - Audio feedback for actions (optional)
+- **Status Bar** - Quick view of level and streak in VS Code status bar
 
-## Installation
+## Getting Started
 
-1. Copy the extension folder to your VS Code extensions directory, or
-2. Package as `.vsix` and install manually:
-   ```bash
-   vsce package
-   code --install-extension codesoundfx-1.0.0.vsix
+1. Install the extension
+2. Start coding! XP is earned automatically:
+   - Save a file: +5 XP
+   - Create a file: +10 XP
+   - Fix an error: +20 XP
+   - Make a git commit: +50 XP
+3. Open the sidebar from the activity bar to view your progress
+
+## Supabase Setup (Optional)
+
+To enable the leaderboard feature:
+
+1. Create a Supabase project at https://supabase.com
+2. Create tables: `user_progress`, `leaderboard`, `achievements`
+3. Add your credentials to `.env`:
+   ```
+   SUPABASE_URL=your_url
+   SUPABASE_KEY=your_anon_key
+   ```
+
+## Commands
+
+- `CODE CORE: Open Dashboard` - Open the sidebar
+- `CODE CORE: Open Mystery Box` - Open earned mystery boxes
+- `CODE CORE: Use XP Boost` - View active boosts
+- `CODE CORE: Show Stats` - View detailed stats
+- `CODE CORE: Claim Daily Reward` - Claim daily XP
+- `CODE CORE: Reset Progress` - Reset all progress (debug)
+
+## License
+
+MIT

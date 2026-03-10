@@ -397,21 +397,18 @@ class XPSystem {
 
         if (lastAction) {
             const timeSince = now - lastAction;
-            if (timeSince < 5000) {
-                // 5 seconds - spam protection
+            if (timeSince < 2000) {
+                // 2 seconds - quick spam protection (reduced from 5s)
                 finalAmount = 0;
                 fatigueApplied = true;
-            } else if (timeSince < 30000) {
-                // 30 seconds
-                finalAmount = Math.floor(amount * 0.2);
-                fatigueApplied = true;
-            } else if (timeSince < 120000) {
-                // 2 minutes
+            } else if (timeSince < 10000) {
+                // 10 seconds (reduced from 30s)
                 finalAmount = Math.floor(amount * 0.5);
                 fatigueApplied = true;
-            } else if (timeSince < 300000) {
-                // 5 minutes
+            } else if (timeSince < 60000) {
+                // 1 minute (reduced from 2 min)
                 finalAmount = Math.floor(amount * 0.8);
+                fatigueApplied = true;
             }
         }
 

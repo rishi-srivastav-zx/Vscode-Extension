@@ -2,154 +2,245 @@
 "use strict";
 
 const vscode = require("vscode");
+const supabase = require("../supabaseClient/supabaseClient");
+const crypto = require("crypto");
+
+function getUserId() {
+    const hostname = require('os').hostname();
+    const username = require('os').userInfo().username;
+    const hash = crypto.createHash('md5').update(hostname + '_' + username).digest('hex');
+    return hash.substring(0, 8) + '-' + hash.substring(8, 12) + '-' + hash.substring(12, 16) + '-' + hash.substring(16, 20) + '-' + hash.substring(20, 32);
+}
+
 
 class SidebarProvider {
-    /** @param {vscode.Uri} extensionUri */
-    constructor(extensionUri, systems) {
-        this.extensionUri = extensionUri;
-        this.systems = systems;
-        /** @type {vscode.WebviewView | null} */
-        this.view = null;
-        /** @type {vscode.Disposable[]} */
-        this._disposables = [];
-    }
+	/** @param {vscode.Uri} extensionUri */
+	constructor(extensionUri, systems) {
+		this.extensionUri = extensionUri;
+		this.systems = systems;
+		/** @type {vscode.WebviewView | null} */
+		this.view = null;
+		/** @type {vscode.Disposable[]} */
+		this._disposables = [];
+	}
 
-    // ─────────────────────────────────────────────────────────
-    // VSCode API
-    // ─────────────────────────────────────────────────────────
+	// ─────────────────────────────────────────────────────────
+	// VSCode API
+	// ─────────────────────────────────────────────────────────
 
-    /** @param {vscode.WebviewView} webviewView */
-    resolveWebviewView(webviewView) {
-        this.view = webviewView;
+	/** @param {vscode.WebviewView} webviewView */
+	resolveWebviewView(webviewView) {
+		this.view = webviewView;
 
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(this.extensionUri, "media"),
-            ],
-        };
+		webviewView.webview.options = {
+			enableScripts: true,
+			localResourceRoots: [
+				vscode.Uri.joinPath(this.extensionUri, "media"),
+			],
+		};
 
-        webviewView.webview.html = this._buildHtml(webviewView.webview);
+		webviewView.webview.html = this._buildHtml(webviewView.webview);
 
-        // Message handler
-        this._disposables.push(
-            webviewView.webview.onDidReceiveMessage(async (msg) => {
-                switch (msg.type) {
-                    case "getData":
-                        this.sendData();
-                        break;
-                    case "openSettings":
-                        vscode.commands.executeCommand(
-                            "workbench.action.openSettings",
-                            "codecore",
-                        );
-                        break;
-                    default:
-                        break;
-                }
-            }),
-        );
+		// CRITICAL: Set up message handler immediately
+		const messageDisposable = webviewView.webview.onDidReceiveMessage(
+			async (msg) => {
+				console.log("[CodeCore] Received message:", msg.type);
 
-        // Send initial data once the view is ready
-        this.sendData();
+				switch (msg.type) {
+					case "getData":
+						this.sendData();
+						break;
+					case "getLeaderboard":
+						console.log("[CodeCore] Processing getLeaderboard");
+						await this.sendLeaderboard(); // Ensure await is here
+						break;
+					case "openSettings":
+						vscode.commands.executeCommand(
+							"workbench.action.openSettings",
+							"codecore",
+						);
+						break;
+				}
+			},
+		);
 
-        // Cleanup on dispose
-        webviewView.onDidDispose(() => {
-            this.dispose();
-            this.view = null;
-        });
-    }
+		this._disposables.push(messageDisposable);
 
-    dispose() {
-        this._disposables.forEach((d) => d.dispose());
-        this._disposables = [];
-    }
+		// Send initial data
+		setTimeout(() => this.sendData(), 100);
 
-    // ─────────────────────────────────────────────────────────
-    // Public helpers
-    // ─────────────────────────────────────────────────────────
+		webviewView.onDidDispose(() => this.dispose());
+	}
 
-    async reveal() {
-        await this.view?.show?.(true);
-    }
+	dispose() {
+		this._disposables.forEach((d) => d.dispose());
+		this._disposables = [];
+	}
 
-    /** Full data refresh */
-    update() {
-        this.sendData();
-    }
+	// ─────────────────────────────────────────────────────────
+	// Public helpers
+	// ─────────────────────────────────────────────────────────
 
-    /** Push a lightweight activity update to the webview */
-    updateActivity(activity) {
-        this._post({ type: "activity", data: activity ?? {} });
-    }
+	async reveal() {
+		await this.view?.show?.(true);
+	}
 
-    // ─────────────────────────────────────────────────────────
-    // Data
-    // ─────────────────────────────────────────────────────────
+	/** Full data refresh */
+	update() {
+		this.sendData();
+	}
 
-    sendData() {
-        if (!this.view) return;
+	/** Push a lightweight activity update to the webview */
+	updateActivity(activity) {
+		this._post({ type: "activity", data: activity ?? {} });
+	}
 
-        try {
-            const progress = this.systems.xp.getProgress();
-            const levelData = this.systems.levels.getLevelData(progress.level);
-            const streak = this.systems.streaks.getStreak();
-            const achievements = this.systems.achievements.getAllAchievements();
-            const stats = this.systems.storage.get("stats") || {};
-            const today = new Date().toISOString().split("T")[0];
-            const todayStats = stats.daily?.[today] || {
-                xp: 0,
-                actions: 0,
-                activeMinutes: 0,
-            };
+	// ─────────────────────────────────────────────────────────
+	// Data
+	// ─────────────────────────────────────────────────────────
 
-            this._post({
-                type: "data",
-                data: {
-                    level: progress.level,
-                    title: levelData.title,
-                    color: levelData.color,
-                    xp: progress.xp,
-                    progress: progress.progress,
-                    required: progress.required,
-                    percentage: progress.percentage,
-                    streak: streak.current,
-                    streakEmoji: this.systems.streaks.getStreakEmoji(
-                        streak.current,
-                    ),
-                    longestStreak: streak.longest,
-                    todayXP: todayStats.xp,
-                    todayMinutes: todayStats.activeMinutes,
-                    achievements,
-                    languages: stats.languages || {},
-                },
-            });
-        } catch (err) {
-            // Gracefully swallow errors so a broken system doesn't crash the panel
-            console.error("[CodeCore] SidebarProvider.sendData error:", err);
-        }
-    }
+	sendData() {
+		if (!this.view) {
+			console.log("[CodeCore] sendData: No view available");
+			return;
+		}
 
-    // ─────────────────────────────────────────────────────────
-    // Internals
-    // ─────────────────────────────────────────────────────────
+		try {
+			const progress = this.systems.xp.getProgress();
+			const levelData = this.systems.levels.getLevelData(progress.level);
+			const streak = this.systems.streaks.getStreak();
+			const achievements = this.systems.achievements.getAllAchievements();
+			const stats = this.systems.storage.get("stats") || {};
+			const today = new Date().toISOString().split("T")[0];
+			const todayStats = stats.daily?.[today] || {
+				xp: 0,
+				actions: 0,
+				activeMinutes: 0,
+			};
 
-    /** @param {object} message */
-    _post(message) {
-        this.view?.webview.postMessage(message);
-    }
+			// Get user ID for highlighting current user in the leaderboard
+			const userId = getUserId();
 
-    /** @param {vscode.Webview} webview */
-    _buildHtml(webview) {
-        const scriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.extensionUri, "media", "sidebar.js"),
-        );
-        const styleUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.extensionUri, "media", "sidebar.css"),
-        );
-        const nonce = _getNonce();
+			this._post({
+				type: "data",
+				data: {
+					level: progress.level,
+					title: levelData.title,
+					color: levelData.color,
+					xp: progress.xp,
+					progress: progress.progress,
+					required: progress.required,
+					percentage: progress.percentage,
+					streak: streak.current,
+					streakEmoji: this.systems.streaks.getStreakEmoji(
+						streak.current,
+					),
+					longestStreak: streak.longest,
+					todayXP: todayStats.xp,
+					todayMinutes: todayStats.activeMinutes,
+					achievements,
+					languages: stats.languages || {},
+					userId: userId, // ADD THIS for highlighting current user
+				},
+			});
+			console.log("[CodeCore] sendData: Data sent successfully");
+		} catch (err) {
+			console.error("[CodeCore] SidebarProvider.sendData error:", err);
+			// Send error state to webview
+			this._post({
+				type: "data",
+				data: {
+					level: 1,
+					title: "Error",
+					color: "#ff4444",
+					xp: 0,
+					progress: 0,
+					required: 100,
+					percentage: 0,
+					streak: 0,
+					streakEmoji: "⚠️",
+					longestStreak: 0,
+					todayXP: 0,
+					todayMinutes: 0,
+					achievements: [],
+					languages: {},
+					error: err.message,
+				},
+			});
+		}
+	}
 
-        return /* html */ `<!DOCTYPE html>
+	async sendLeaderboard() {
+		console.log(
+			"[CodeCore] sendLeaderboard called, view exists:",
+			!!this.view,
+		);
+
+		if (!this.view) {
+			console.log("[CodeCore] sendLeaderboard: No view available");
+			return;
+		}
+
+		try {
+			const configured = supabase.isConfigured();
+			console.log("[CodeCore] Supabase configured:", configured);
+
+			if (!configured) {
+				console.log("[CodeCore] Supabase not configured");
+				this._post({
+					type: "leaderboard",
+					data: [],
+					error: "Supabase not configured. Please set SUPABASE_URL and SUPABASE_KEY in your .env file.",
+				});
+				return;
+			}
+
+			console.log("[CodeCore] Fetching leaderboard...");
+			const leaderboard = await supabase.getLeaderboard(10);
+			console.log("[CodeCore] Got leaderboard:", leaderboard);
+
+			const currentUserId = getUserId();
+			const processedLeaderboard = (leaderboard || []).map((entry) => ({
+				...entry,
+				isCurrentUser: entry.user_id === currentUserId,
+			}));
+
+			console.log("[CodeCore] Sending leaderboard to webview");
+			this._post({
+				type: "leaderboard",
+				data: processedLeaderboard,
+			});
+		} catch (err) {
+			console.error("[CodeCore] sendLeaderboard error:", err);
+			this._post({
+				type: "leaderboard",
+				data: [],
+				error: err.message || "Failed to load leaderboard",
+			});
+		}
+	}
+
+	// ─────────────────────────────────────────────────────────
+	// Internals
+	// ─────────────────────────────────────────────────────────
+
+	/** @param {object} message */
+	_post(message) {
+		console.log("[CodeCore] _post sending message:", message.type);
+		this.view?.webview.postMessage(message);
+	}
+
+	/** @param {vscode.Webview} webview */
+	_buildHtml(webview) {
+		const scriptUri = webview.asWebviewUri(
+			vscode.Uri.joinPath(this.extensionUri, "media", "sidebar.js"),
+		);
+		const styleUri = webview.asWebviewUri(
+			vscode.Uri.joinPath(this.extensionUri, "media", "sidebar.css"),
+		);
+		const nonce = _getNonce();
+
+		return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -167,13 +258,13 @@ class SidebarProvider {
     <div id="app">
         <div class="loading">
             <div class="loading-spinner"></div>
-            <span>Initializing</span>
+            <span>Initializing...</span>
         </div>
     </div>
     <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
-    }
+	}
 }
 
 // ─────────────────────────────────────────────────────────────
