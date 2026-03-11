@@ -30,6 +30,14 @@ window.onerror = function(msg, url, line) {
                 console.log("[CodeCore Webview] Rendering main data");
                 render(message.data);
                 break;
+            case "profileData":
+                showProfileModalWithData(message.username);
+                break;
+            case "profileSaved":
+                if (message.success) {
+                    vscode.postMessage({ type: "getData" });
+                }
+                break;
             case "activity":
                 console.log("[CodeCore Webview] Updating activity");
                 updateActivity(message.data);
@@ -179,8 +187,7 @@ window.onerror = function(msg, url, line) {
                 }
 
                 const xp = entry.total_xp?.toLocaleString() || "0";
-                const username =
-                    entry.profiles?.username || entry.user_id || "Unknown";
+                const username = entry.username || entry.user_id?.substring(0, 12) || "Unknown";
                 const isCurrentUser = entry.isCurrentUser;
 
                 return `
@@ -359,11 +366,11 @@ window.onerror = function(msg, url, line) {
         <div class="wrap main-view">
             <!-- HEADER -->
             <div class="header">
-                <div class="avatar">
+                <div class="avatar" id="avatarBtn">
                     <div class="avatar-ping"></div>
                     <div class="avatar-ping2"></div>
                     <div class="avatar-inner">
-                        <span class="avatar-text">${(data.username || "U").charAt(0).toUpperCase()}</span>
+                        <span class="avatar-text">${(data.displayName || "U").charAt(0).toUpperCase()}</span>
                         <div class="avatar-ring"></div>
                     </div>
                 </div>
@@ -450,8 +457,81 @@ window.onerror = function(msg, url, line) {
         });
 
         document.getElementById("leaderboardBtn")?.addEventListener("click", loadLeaderboard);
+        document.getElementById("avatarBtn")?.addEventListener("click", showProfileModal);
 
         console.log("[CodeCore Webview] Main view rendered successfully");
+    }
+
+    function showProfileModal() {
+        const app = document.getElementById("app");
+        if (!app) return;
+
+        app.innerHTML = `
+        <div class="wrap">
+            <div class="header" style="justify-content: space-between; align-items: center;">
+                <span style="font-size: 1.2rem;">👤 Profile</span>
+                <button class="btn-back" id="backBtn">← Back</button>
+            </div>
+            <div class="profile-section">
+                <div class="profile-avatar">
+                    <div class="avatar-large">
+                        <span class="avatar-text-large">U</span>
+                    </div>
+                </div>
+                <div class="profile-form">
+                    <label class="profile-label">Display Name</label>
+                    <input type="text" id="profileName" class="profile-input" placeholder="Enter your name" maxlength="20">
+                    <p class="profile-hint">This name will be shown on the leaderboard</p>
+                    <button class="btn-save" id="saveProfileBtn">Save Profile</button>
+                </div>
+            </div>
+        </div>`;
+
+        document.getElementById("backBtn")?.addEventListener("click", goBack);
+        document.getElementById("saveProfileBtn")?.addEventListener("click", saveProfile);
+        
+        vscode.postMessage({ type: "getProfile" });
+    }
+
+    function showProfileModalWithData(currentUsername) {
+        const app = document.getElementById("app");
+        if (!app) return;
+
+        app.innerHTML = `
+        <div class="wrap">
+            <div class="header" style="justify-content: space-between; align-items: center;">
+                <span style="font-size: 1.2rem;">👤 Profile</span>
+                <button class="btn-back" id="backBtn">← Back</button>
+            </div>
+            <div class="profile-section">
+                <div class="profile-avatar">
+                    <div class="avatar-large">
+                        <span class="avatar-text-large">${(currentUsername || "U").charAt(0).toUpperCase()}</span>
+                    </div>
+                </div>
+                <div class="profile-form">
+                    <label class="profile-label">Display Name</label>
+                    <input type="text" id="profileName" class="profile-input" placeholder="Enter your name" maxlength="20" value="${currentUsername || ''}">
+                    <p class="profile-hint">This name will be shown on the leaderboard</p>
+                    <button class="btn-save" id="saveProfileBtn">Save Profile</button>
+                </div>
+            </div>
+        </div>`;
+
+        document.getElementById("backBtn")?.addEventListener("click", goBack);
+        document.getElementById("saveProfileBtn")?.addEventListener("click", saveProfile);
+    }
+
+    function saveProfile() {
+        const nameInput = document.getElementById("profileName");
+        const name = nameInput?.value?.trim();
+        
+        if (!name) {
+            alert("Please enter a name");
+            return;
+        }
+
+        vscode.postMessage({ type: "saveProfile", username: name });
     }
 
     function updateActivity(activity) {

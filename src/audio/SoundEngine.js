@@ -40,8 +40,6 @@ class SoundEngine {
         }
 
         const fallbacks = {
-            save: "create",
-            commit: "create",
             errorFix: "achievement",
             levelUp: "levelup",
             errorfix: "achievement",

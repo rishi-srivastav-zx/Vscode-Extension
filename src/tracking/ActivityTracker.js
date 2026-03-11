@@ -1,12 +1,19 @@
 const vscode = require("vscode");
 const supabase = require("../supabaseClient/supabaseClient");
 const crypto = require("crypto");
+const os = require("os");
 
 function generateUserId() {
-    const hostname = require('os').hostname();
-    const username = require('os').userInfo().username;
+    const hostname = os.hostname();
+    const username = os.userInfo().username;
     const hash = crypto.createHash('md5').update(hostname + '_' + username).digest('hex');
     return hash.substring(0, 8) + '-' + hash.substring(8, 12) + '-' + hash.substring(12, 16) + '-' + hash.substring(16, 20) + '-' + hash.substring(20, 32);
+}
+
+function getDisplayName() {
+    const username = os.userInfo().username;
+    const hostname = os.hostname();
+    return `${username}@${hostname.substring(0, 8)}`;
 }
 
 class ActivityTracker {
@@ -16,19 +23,29 @@ class ActivityTracker {
         this.diagnostics = new Map();
         this.lastComboNotification = 0;
         this.userId = generateUserId();
+        this.displayName = getDisplayName();
     }
 
     async syncProgress() {
-        if (!supabase.isConfigured()) return;
+        if (!supabase.isConfigured()) {
+            console.log("[ActivityTracker] Supabase not configured, skipping sync");
+            return;
+        }
+        console.log("[ActivityTracker] Syncing progress to Supabase...");
         const progress = this.systems.xp.getProgress();
         const streak = this.systems.streaks.getStreakStatus();
+        console.log("[ActivityTracker] Progress to sync:", { userId: this.userId, totalXP: progress.xp, level: progress.level });
+        
         await supabase.syncProgress(this.userId, {
-            totalXP: progress.totalXP,
+            totalXP: progress.xp,
             level: progress.level,
             streak: streak.current,
-            longestStreak: streak.longest
+            longestStreak: streak.longest,
+            username: this.displayName
         });
-        await supabase.updateLeaderboard(this.userId, progress.totalXP);
+        
+        const lbResult = await supabase.updateLeaderboard(this.userId, progress.xp, progress.level, this.displayName);
+        console.log("[ActivityTracker] Leaderboard update result:", lbResult);
     }
 
     start() {

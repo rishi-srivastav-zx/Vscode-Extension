@@ -1,9 +1,11 @@
 .vscode/**
 .vscode-test/**
 .gitignore
+.vscignore
 vsc-extension-quickstart.md
 **/jsconfig.json
 **/*.map
 **/.eslintrc.json
 node_modules/**
 !node_modules/vscode/**
+.env

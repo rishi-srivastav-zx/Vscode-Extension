@@ -12,6 +12,13 @@ function getUserId() {
     return hash.substring(0, 8) + '-' + hash.substring(8, 12) + '-' + hash.substring(12, 16) + '-' + hash.substring(16, 20) + '-' + hash.substring(20, 32);
 }
 
+function getDisplayName() {
+    const os = require('os');
+    const username = os.userInfo().username;
+    const hostname = os.hostname();
+    return `${username}@${hostname.substring(0, 8)}`;
+}
+
 
 class SidebarProvider {
 	/** @param {vscode.Uri} extensionUri */
@@ -49,6 +56,12 @@ class SidebarProvider {
 				switch (msg.type) {
 					case "getData":
 						this.sendData();
+						break;
+					case "getProfile":
+						this.sendProfile();
+						break;
+					case "saveProfile":
+						await this.saveProfile(msg.username);
 						break;
 					case "getLeaderboard":
 						console.log("[CodeCore] Processing getLeaderboard");
@@ -96,6 +109,66 @@ class SidebarProvider {
 	}
 
 	// ─────────────────────────────────────────────────────────
+	// Profile
+	// ─────────────────────────────────────────────────────────
+
+	async sendProfile() {
+		if (!this.view) return;
+
+		try {
+			const userId = getUserId();
+			const savedUsername = this.systems.storage.get("username") || "";
+			
+			this._post({
+				type: "profileData",
+				username: savedUsername,
+			});
+		} catch (err) {
+			console.error("[CodeCore] sendProfile error:", err);
+		}
+	}
+
+	async saveProfile(username) {
+		if (!this.view) return;
+
+		try {
+			const userId = getUserId();
+			
+			// Save locally
+			this.systems.storage.set("username", username);
+			
+			// Sync to Supabase
+			if (supabase.isConfigured()) {
+				const progress = this.systems.xp.getProgress();
+				const streak = this.systems.streaks.getStreak();
+				
+				await supabase.syncProgress(userId, {
+					totalXP: progress.xp,
+					level: progress.level,
+					streak: streak.current,
+					longestStreak: streak.longest,
+					username: username
+				});
+				
+				await supabase.updateLeaderboard(userId, progress.xp, progress.level, username);
+			}
+			
+			this._post({
+				type: "profileSaved",
+				success: true,
+				username: username,
+			});
+		} catch (err) {
+			console.error("[CodeCore] saveProfile error:", err);
+			this._post({
+				type: "profileSaved",
+				success: false,
+				error: err.message,
+			});
+		}
+	}
+
+	// ─────────────────────────────────────────────────────────
 	// Data
 	// ─────────────────────────────────────────────────────────
 
@@ -120,6 +193,7 @@ class SidebarProvider {
 
 			// Get user ID for highlighting current user in the leaderboard
 			const userId = getUserId();
+			const savedUsername = this.systems.storage.get("username") || getDisplayName();
 
 			this._post({
 				type: "data",
@@ -128,6 +202,7 @@ class SidebarProvider {
 					title: levelData.title,
 					color: levelData.color,
 					xp: progress.xp,
+					totalXP: progress.xp,
 					progress: progress.progress,
 					required: progress.required,
 					percentage: progress.percentage,
@@ -140,7 +215,8 @@ class SidebarProvider {
 					todayMinutes: todayStats.activeMinutes,
 					achievements,
 					languages: stats.languages || {},
-					userId: userId, // ADD THIS for highlighting current user
+					userId: userId,
+					displayName: savedUsername,
 				},
 			});
 			console.log("[CodeCore] sendData: Data sent successfully");
@@ -195,17 +271,59 @@ class SidebarProvider {
 				return;
 			}
 
-			console.log("[CodeCore] Fetching leaderboard...");
-			const leaderboard = await supabase.getLeaderboard(10);
-			console.log("[CodeCore] Got leaderboard:", leaderboard);
+			// First, sync current user's progress
+			console.log("[CodeCore] Syncing current user progress first...");
+			const progress = this.systems.xp.getProgress();
+			const streak = this.systems.streaks.getStreak();
+			// Use saved username or default display name
+			const savedUsername = this.systems.storage.get("username") || getDisplayName();
+			
+			await supabase.syncProgress(getUserId(), {
+				totalXP: progress.xp,
+				level: progress.level,
+				streak: streak.current,
+				longestStreak: streak.longest,
+				username: savedUsername
+			});
+			await supabase.updateLeaderboard(getUserId(), progress.xp, progress.level, savedUsername);
 
+			console.log("[CodeCore] Fetching leaderboard...");
+			const result = await supabase.getLeaderboard(10);
+			console.log("[CodeCore] Got leaderboard result:", result);
+
+			if (result.error) {
+				this._post({
+					type: "leaderboard",
+					data: [],
+					error: result.error,
+				});
+				return;
+			}
+
+			let leaderboard = result.data || [];
+			
+			// Ensure current user is in the leaderboard
 			const currentUserId = getUserId();
-			const processedLeaderboard = (leaderboard || []).map((entry) => ({
+			const currentUser = leaderboard.find(e => e.user_id === currentUserId);
+			const displayName = this.systems.storage.get("username") || getDisplayName();
+			
+			if (!currentUser) {
+				leaderboard.push({
+					user_id: currentUserId,
+					username: displayName,
+					total_xp: progress.xp,
+					level: progress.level,
+					isCurrentUser: true
+				});
+				leaderboard = leaderboard.sort((a, b) => (b.total_xp || 0) - (a.total_xp || 0));
+			}
+
+			const processedLeaderboard = leaderboard.map((entry) => ({
 				...entry,
 				isCurrentUser: entry.user_id === currentUserId,
 			}));
 
-			console.log("[CodeCore] Sending leaderboard to webview");
+			console.log("[CodeCore] Sending leaderboard to webview, entries:", processedLeaderboard.length);
 			this._post({
 				type: "leaderboard",
 				data: processedLeaderboard,

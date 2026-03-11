@@ -303,12 +303,13 @@ async function checkDailyLogin() {
 // Welcome back message
 async function showWelcomeBack() {
     const progress = systems.xp.getProgress();
+    const levelData = systems.levels.getLevelData(progress.level);
     const streak = systems.streaks.getStreak();
     const boxes = systems.xp.getMysteryBoxes();
     const totalBoxes =
         (boxes.bronze || 0) + (boxes.silver || 0) + (boxes.gold || 0);
 
-    let message = `Welcome back! Level ${progress.level} ${progress.title}`;
+    let message = `Welcome back! Level ${progress.level} ${levelData.title}`;
 
     if (streak.current > 0) {
         message += ` | 🔥 ${streak.current} day streak`;

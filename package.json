@@ -3,10 +3,10 @@
 	"displayName": "CODE CORE",
 	"description": "Gamified coding. Level up your development.",
 	"version": "0.1.0",
-	"publisher": "Rishi-Srivastav",
+	"publisher": "Rishisrivastav",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/rishi-srivastav-zx/Vscode-Extension"
+		"url": "https://github.com/rishi-srivastav-zx/Vscode-Extension.git"
 	},
 	"engines": {
 		"vscode": "^1.74.0"
