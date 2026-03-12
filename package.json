@@ -23,7 +23,7 @@
 	"files": [
 		"src/**/*",
 		"media/**/*",
-		".env"
+		"icon.ico"
 	],
 	"contributes": {
 		"commands": [
