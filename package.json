@@ -15,10 +15,16 @@
 		"Other",
 		"Visualization"
 	],
+	"icon": "icon.ico",
 	"activationEvents": [
 		"onStartupFinished"
 	],
 	"main": "./src/extension.js",
+	"files": [
+		"src/**/*",
+		"media/**/*",
+		".env"
+	],
 	"contributes": {
 		"commands": [
 			{
@@ -106,6 +112,7 @@
 	},
 	"dependencies": {
 		"@supabase/supabase-js": "^2.99.0",
+		"@vscode/vsce": "^3.7.1",
 		"dotenv": "^16.6.1",
 		"eslint": "^10.0.2",
 		"globals": "^17.4.0"
