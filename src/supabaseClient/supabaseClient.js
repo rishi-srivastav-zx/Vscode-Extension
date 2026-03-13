@@ -1,36 +1,41 @@
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
 
-const envPath = path.join(__dirname, '../../.env');
 let supabaseUrl = "";
 let supabaseKey = "";
 
-if (fs.existsSync(envPath)) {
-    console.log("[Supabase] .env file found at:", envPath);
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    envContent.split('\n').forEach(line => {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith('#')) {
-            const [key, ...valueParts] = trimmed.split('=');
-            if (key && valueParts.length > 0) {
-                if (key.trim() === 'SUPABASE_URL') supabaseUrl = valueParts.join('=').trim();
-                if (key.trim() === 'SUPABASE_KEY') supabaseKey = valueParts.join('=').trim();
+function loadFromPackageJson() {
+    try {
+        const extensionPath = path.join(__dirname, '../..');
+        const packageJsonPath = path.join(extensionPath, 'package.json');
+        
+        if (fs.existsSync(packageJsonPath)) {
+            const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+            const codeCore = packageJson.codeCore || {};
+            supabaseUrl = codeCore.supabaseUrl || '';
+            supabaseKey = codeCore.supabaseKey || '';
+            
+            if (supabaseUrl && supabaseKey) {
+                console.log("[Supabase] Loaded from package.json. URL:", supabaseUrl.substring(0, 20) + "...");
+                return true;
             }
         }
-    });
-    console.log("[Supabase] Loaded URL:", supabaseUrl, "Key length:", supabaseKey.length);
-} else {
-    console.log("[Supabase] .env file NOT found at:", envPath);
+    } catch (e) {
+        console.log("[Supabase] Error loading package.json:", e.message);
+    }
+    return false;
 }
+
+loadFromPackageJson();
 
 const { createClient } = require("@supabase/supabase-js");
 
-const supabase = supabaseUrl && supabaseKey 
+const supabase = (supabaseUrl && supabaseKey) 
     ? createClient(supabaseUrl, supabaseKey) 
     : null;
 
 const isConfigured = () => {
-    console.log("[Supabase] isConfigured check:", { supabaseUrl, supabaseKey: supabaseKey ? "***" : null, supabase: !!supabase });
+    console.log("[Supabase] isConfigured check:", { hasUrl: !!supabaseUrl, hasKey: !!supabaseKey, hasSupabase: !!supabase });
     return supabase !== null;
 };
 

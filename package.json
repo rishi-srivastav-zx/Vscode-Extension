@@ -25,6 +25,10 @@
 		"media/**/*",
 		"icon.ico"
 	],
+	"codeCore": {
+		"supabaseUrl": "https://ufkcqbtozbvzafsecdcr.supabase.co",
+		"supabaseKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVma2NxYnRvemJ2emFmc2VjZGNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjE3NzEsImV4cCI6MjA4ODYzNzc3MX0.3RzNsYPckeXXj6lR9NEqT3ZDroIHk2HTH8OwFm6iVxU"
+	},
 	"contributes": {
 		"commands": [
 			{
@@ -100,6 +104,16 @@
 					"type": "boolean",
 					"default": true,
 					"description": "Show status bar display"
+				},
+				"codecore.supabaseUrl": {
+					"type": "string",
+					"default": "",
+					"description": "Supabase Project URL (required for leaderboard)"
+				},
+				"codecore.supabaseKey": {
+					"type": "string",
+					"default": "",
+					"description": "Supabase Anon Key (required for leaderboard)"
 				}
 			}
 		}
