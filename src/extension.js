@@ -1,332 +1,322 @@
 const vscode = require("vscode");
-console.log("[CODE CORE] Extension loading...");
+
 const XPSystem = require("./core/XPSystem");
 const LevelSystem = require("./core/LevelSystem");
 const StreakSystem = require("./core/StreakSystem");
 const AchievementSystem = require("./core/AchievementSystem");
+
 const ActivityTracker = require("./tracking/ActivityTracker");
 const HeartbeatMonitor = require("./tracking/HeartbeatMonitor");
+
 const { SoundEngine, SoundEventHandler } = require("./audio/SoundEngine");
+
 const StatusBar = require("./ui/StatusBar");
 const SidebarProvider = require("./ui/SidebarProvider");
+
 const LocalStorage = require("./storage/LocalStorage");
 
 let context;
 let systems = {};
 
+/**
+ * Extension Activation
+ */
 async function activate(ctx) {
-    context = ctx;
+	console.log("[CODE CORE] Activating extension...");
 
-    const storage = new LocalStorage(ctx);
-    await storage.initialize();
+	context = ctx;
 
-    // Initialize core systems
-    systems.xp = new XPSystem(storage);
-    systems.levels = new LevelSystem(storage);
-    systems.streaks = new StreakSystem(storage);
-    systems.achievements = new AchievementSystem(storage);
+	try {
+		// ----------------------------
+		// Storage Initialization
+		// ----------------------------
 
-    // Audio system
-    systems.sounds = new SoundEngine(context);
+		const storage = new LocalStorage(ctx);
+		await storage.initialize();
 
-    // Storage reference
-    systems.storage = storage;
+		systems.storage = storage;
 
-    // UI systems
-    systems.statusBar = new StatusBar(systems);
-    systems.sidebar = new SidebarProvider(context.extensionUri, systems);
+		// ----------------------------
+		// Core Systems
+		// ----------------------------
 
-    // Tracking systems
-    systems.tracker = new ActivityTracker(systems);
-    systems.heartbeat = new HeartbeatMonitor(systems);
-    systems.soundHandler = new SoundEventHandler(systems.sounds);
+		systems.xp = new XPSystem(storage);
+		systems.levels = new LevelSystem(storage);
+		systems.streaks = new StreakSystem(storage);
+		systems.achievements = new AchievementSystem(storage);
 
-    // Register sound events
-    const soundDisposables = await systems.soundHandler.register();
-    ctx.subscriptions.push(...soundDisposables);
+		// ----------------------------
+		// Audio System
+		// ----------------------------
 
-    // Register sidebar with proper disposal
-    const sidebarDisposable = vscode.window.registerWebviewViewProvider(
-        "codecore.sidebar",
-        systems.sidebar,
-    );
-    ctx.subscriptions.push(sidebarDisposable);
+		systems.sounds = new SoundEngine(context);
+		systems.soundHandler = new SoundEventHandler(systems.sounds);
 
-    // Add sidebar disposal
-    ctx.subscriptions.push({
-        dispose: () => {
-            systems.sidebar?.dispose();
-        },
-    });
+		const soundEvents = await systems.soundHandler.register();
+		ctx.subscriptions.push(...soundEvents);
 
-    // Register commands
-    ctx.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codecore.openDashboard",
-            openDashboard,
-        ),
-        vscode.commands.registerCommand(
-            "codecore.toggleFocusMode",
-            toggleFocusMode,
-        ),
-        vscode.commands.registerCommand(
-            "codecore.resetProgress",
-            resetProgress,
-        ),
+		// ----------------------------
+		// UI Systems
+		// ----------------------------
 
-        // New commands for features
-        vscode.commands.registerCommand(
-            "codecore.openMysteryBox",
-            openMysteryBox,
-        ),
-        vscode.commands.registerCommand("codecore.useBoost", useBoost),
-        vscode.commands.registerCommand("codecore.showStats", showStats),
-        vscode.commands.registerCommand(
-            "codecore.claimDaily",
-            claimDailyReward,
-        ),
-    );
+		systems.statusBar = new StatusBar(systems);
+		systems.sidebar = new SidebarProvider(context.extensionUri, systems);
 
-    // Start tracking
-    systems.tracker.start();
-    systems.heartbeat.start();
+		const sidebar = vscode.window.registerWebviewViewProvider(
+			"codecore.sidebar",
+			systems.sidebar,
+		);
 
-    // Check for daily login
-    await checkDailyLogin();
+		ctx.subscriptions.push(sidebar);
 
-    // Update UI
-    systems.statusBar.update();
+		// ----------------------------
+		// Tracking Systems
+		// ----------------------------
 
-    // Show welcome message for returning users
-    showWelcomeBack();
+		systems.tracker = new ActivityTracker(systems);
+		systems.heartbeat = new HeartbeatMonitor(systems);
 
-    console.log("CODE CORE activated");
+		systems.tracker.start();
+		systems.heartbeat.start();
+
+		// ----------------------------
+		// Commands
+		// ----------------------------
+
+		registerCommands(ctx);
+
+		// ----------------------------
+		// Daily Checks
+		// ----------------------------
+
+		await checkDailyLogin();
+
+		// ----------------------------
+		// UI Updates
+		// ----------------------------
+
+		systems.statusBar.update();
+		systems.sidebar?.update();
+
+		showWelcomeBack();
+
+		console.log("[CODE CORE] Extension activated successfully");
+	} catch (error) {
+		console.error("[CODE CORE] Activation failed:", error);
+		vscode.window.showErrorMessage(
+			"CODE CORE failed to start. Check developer console.",
+		);
+	}
 }
 
+/**
+ * Extension Deactivation
+ */
 function deactivate() {
-    systems.heartbeat?.stop();
-    systems.tracker?.stop();
-    systems.sidebar?.dispose();
+	console.log("[CODE CORE] Shutting down...");
+
+	try {
+		systems.heartbeat?.stop();
+		systems.tracker?.stop();
+		systems.sidebar?.dispose();
+	} catch (err) {
+		console.error("Shutdown error:", err);
+	}
 }
 
+/**
+ * Register Extension Commands
+ */
+function registerCommands(ctx) {
+	ctx.subscriptions.push(
+		vscode.commands.registerCommand(
+			"codecore.openDashboard",
+			openDashboard,
+		),
+
+		vscode.commands.registerCommand(
+			"codecore.toggleFocusMode",
+			toggleFocusMode,
+		),
+
+		vscode.commands.registerCommand(
+			"codecore.resetProgress",
+			resetProgress,
+		),
+
+		vscode.commands.registerCommand(
+			"codecore.openMysteryBox",
+			openMysteryBox,
+		),
+
+		vscode.commands.registerCommand("codecore.useBoost", useBoost),
+
+		vscode.commands.registerCommand("codecore.showStats", showStats),
+
+		vscode.commands.registerCommand(
+			"codecore.claimDaily",
+			claimDailyReward,
+		),
+	);
+}
+
+/**
+ * Open Dashboard
+ */
 async function openDashboard() {
-    console.log("Dashboard clicked");
-    await vscode.commands.executeCommand("codecore.sidebar.focus");
+	await vscode.commands.executeCommand("workbench.view.extension.codecore");
 }
 
-async function toggleFocusMode() {
-    vscode.window.showInformationMessage("Focus Mode: Coming in Phase 2");
+/**
+ * Focus Mode Toggle
+ */
+function toggleFocusMode() {
+	vscode.window.showInformationMessage("Focus Mode coming soon!");
 }
 
+/**
+ * Reset All Progress
+ */
 async function resetProgress() {
-    const answer = await vscode.window.showWarningMessage(
-        "Reset ALL progress? This cannot be undone. (XP, Level, Streak, Achievements, Mystery Boxes)",
-        "Yes, Reset Everything",
-        "Cancel",
-    );
+	const answer = await vscode.window.showWarningMessage(
+		"Reset ALL CODE CORE progress?",
+		"Yes Reset Everything",
+		"Cancel",
+	);
 
-    if (answer === "Yes, Reset Everything") {
-        // Reset all systems
-        await systems.xp.reset();
-        await systems.streaks.reset();
-        await systems.achievements.reset();
+	if (answer !== "Yes Reset Everything") return;
 
-        // Clear mystery boxes
-        systems.storage.set("mysteryBoxes", { bronze: 0, silver: 0, gold: 0 });
-        systems.storage.set("tempBoost", null);
-        systems.storage.set("streakBoost", null);
+	await systems.xp.reset();
+	await systems.streaks.reset();
+	await systems.achievements.reset();
 
-        systems.statusBar.update();
-        systems.sidebar?.update();
+	systems.storage.set("mysteryBoxes", { bronze: 0, silver: 0, gold: 0 });
 
-        vscode.window.showInformationMessage(
-            "🗑️ All progress reset. Fresh start!",
-        );
-    }
+	systems.statusBar.update();
+	systems.sidebar?.update();
+
+	vscode.window.showInformationMessage("All progress reset.");
 }
 
-// NEW: Open Mystery Box command
+/**
+ * Open Mystery Box
+ */
 async function openMysteryBox() {
-    const boxes = systems.xp.getMysteryBoxes();
-    const totalBoxes =
-        (boxes.bronze || 0) + (boxes.silver || 0) + (boxes.gold || 0);
+	const boxes = systems.xp.getMysteryBoxes();
 
-    if (totalBoxes === 0) {
-        vscode.window
-            .showInformationMessage(
-                "📦 No Mystery Boxes! Keep coding to earn them at level ups and streak milestones.",
-                "View Progress",
-            )
-            .then((selection) => {
-                if (selection === "View Progress") {
-                    openDashboard();
-                }
-            });
-        return;
-    }
+	const total = (boxes.bronze || 0) + (boxes.silver || 0) + (boxes.gold || 0);
 
-    // Show quick pick for box selection
-    const items = [];
-    if (boxes.bronze > 0)
-        items.push({
-            label: `🥉 Bronze Box (${boxes.bronze})`,
-            type: "bronze",
-            count: boxes.bronze,
-        });
-    if (boxes.silver > 0)
-        items.push({
-            label: `🥈 Silver Box (${boxes.silver})`,
-            type: "silver",
-            count: boxes.silver,
-        });
-    if (boxes.gold > 0)
-        items.push({
-            label: `🥇 Gold Box (${boxes.gold})`,
-            type: "gold",
-            count: boxes.gold,
-        });
+	if (total === 0) {
+		vscode.window.showInformationMessage(
+			"No mystery boxes yet. Keep coding!",
+		);
+		return;
+	}
 
-    const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: "Select a Mystery Box to open...",
-    });
+	const items = [];
 
-    if (!selected) return;
+	if (boxes.bronze > 0)
+		items.push({ label: `Bronze (${boxes.bronze})`, type: "bronze" });
 
-    // Open the box
-    const result = await systems.xp.openMysteryBox(selected.type);
+	if (boxes.silver > 0)
+		items.push({ label: `Silver (${boxes.silver})`, type: "silver" });
 
-    if (result.success) {
-        systems.sounds.play("achievement");
-        systems.sidebar?.update();
-    }
+	if (boxes.gold > 0)
+		items.push({ label: `Gold (${boxes.gold})`, type: "gold" });
+
+	const selected = await vscode.window.showQuickPick(items);
+
+	if (!selected) return;
+
+	const result = await systems.xp.openMysteryBox(selected.type);
+
+	if (result.success) {
+		systems.sounds.play("achievement");
+		systems.sidebar?.update();
+	}
 }
 
-// NEW: Use XP Boost command
-async function useBoost() {
-    const boosts = systems.xp.getActiveBoosts();
-    const tempBoost = boosts.find(
-        (b) => b.type === "temporary" || b.type === "streak",
-    );
+/**
+ * Show Active Boost
+ */
+function useBoost() {
+	const boosts = systems.xp.getActiveBoosts();
 
-    if (!tempBoost) {
-        vscode.window.showInformationMessage(
-            "⚡ No active boosts. Open Mystery Boxes or maintain streaks to get boosts!",
-        );
-        return;
-    }
+	if (!boosts.length) {
+		vscode.window.showInformationMessage("No active boosts.");
+		return;
+	}
 
-    const expiresIn = tempBoost.expires
-        ? Math.ceil((tempBoost.expires - Date.now()) / 60000)
-        : "active";
-    vscode.window.showInformationMessage(
-        `⚡ Active Boost: ${tempBoost.source} - ${tempBoost.multiplier}x XP (Expires: ${expiresIn}m)`,
-    );
+	const multiplier = boosts.reduce((a, b) => a * b.multiplier, 1);
+
+	vscode.window.showInformationMessage(`Active XP Boost: ${multiplier}x`);
 }
 
-// NEW: Show detailed stats
-async function showStats() {
-    const progress = systems.xp.getProgress();
-    const streak = systems.streaks.getStreakStatus();
-    const boxes = systems.xp.getMysteryBoxes();
-    const boosts = systems.xp.getActiveBoosts();
+/**
+ * Show Player Stats
+ */
+function showStats() {
+	const progress = systems.xp.getProgress();
+	const streak = systems.streaks.getStreakStatus();
 
-    const totalMultiplier = boosts.reduce((acc, b) => acc * b.multiplier, 1);
-
-    const statsText = `
-📊 CODE CORE STATS
-
-🏆 Level ${progress.level} - ${progress.title}
-📈 XP: ${progress.xp.toLocaleString()} / ${progress.levelEnd.toLocaleString()} (${Math.floor(progress.percentage)}%)
-🔥 Streak: ${streak.current} days (Longest: ${streak.longest})
-📦 Boxes: 🥉${boxes.bronze} 🥈${boxes.silver} 🥇${boxes.gold}
-⚡ Boost: ${totalMultiplier.toFixed(2)}x
-    `;
-
-    vscode.window
-        .showInformationMessage(statsText, "Open Dashboard", "Close")
-        .then((selection) => {
-            if (selection === "Open Dashboard") openDashboard();
-        });
+	vscode.window.showInformationMessage(
+		`Level ${progress.level} | XP ${progress.xp} | Streak ${streak.current}`,
+	);
 }
 
-// NEW: Daily reward claim
+/**
+ * Claim Daily Reward
+ */
 async function claimDailyReward() {
-    const lastClaim = systems.storage.get("lastDailyClaim");
-    const today = new Date().toISOString().split("T")[0];
+	const today = new Date().toISOString().split("T")[0];
+	const last = systems.storage.get("lastDailyClaim");
 
-    if (lastClaim === today) {
-        vscode.window.showWarningMessage(
-            "⏰ Daily reward already claimed! Come back tomorrow.",
-        );
-        return;
-    }
+	if (last === today) {
+		vscode.window.showWarningMessage("Daily reward already claimed.");
+		return;
+	}
 
-    // Award daily XP based on streak
-    const streak = systems.streaks.getStreak();
-    const baseXP = 50;
-    const streakBonus = Math.min(streak.current * 5, 100);
-    const totalXP = baseXP + streakBonus;
+	const streak = systems.streaks.getStreak();
+	const reward = 50 + Math.min(streak.current * 5, 100);
 
-    await systems.xp.addXP(totalXP, "daily_login", { streak: streak.current });
+	await systems.xp.addXP(reward, "daily_login");
 
-    systems.storage.set("lastDailyClaim", today);
-    systems.sounds.play("achievement");
+	systems.storage.set("lastDailyClaim", today);
 
-    vscode.window.showInformationMessage(
-        `📅 Daily Reward: +${totalXP} XP! (${baseXP} base + ${streakBonus} streak bonus)`,
-    );
+	systems.sounds.play("achievement");
 
-    systems.statusBar.update();
-    systems.sidebar?.update();
+	systems.statusBar.update();
+	systems.sidebar?.update();
+
+	vscode.window.showInformationMessage(`Daily reward: +${reward} XP`);
 }
 
-// Check daily login for streak
+/**
+ * Daily Login Check
+ */
 async function checkDailyLogin() {
-    const result = await systems.streaks.recordActivity(0);
+	const result = await systems.streaks.recordActivity(0);
 
-    if (result.updated && result.isNewDay) {
-        // New day started
-        if (result.rewards && result.rewards.length > 0) {
-            systems.sounds.play("achievement");
-        }
-    }
-
-    // Check for expired streak
-    if (result.expired) {
-        vscode.window.showWarningMessage(
-            `💔 Your ${result.streak.current} day streak has expired! Code today to start a new streak.`,
-            "Start Coding",
-        );
-    }
+	if (result.expired) {
+		vscode.window.showWarningMessage("Your coding streak expired.");
+	}
 }
 
-// Welcome back message
-async function showWelcomeBack() {
-    const progress = systems.xp.getProgress();
-    const levelData = systems.levels.getLevelData(progress.level);
-    const streak = systems.streaks.getStreak();
-    const boxes = systems.xp.getMysteryBoxes();
-    const totalBoxes =
-        (boxes.bronze || 0) + (boxes.silver || 0) + (boxes.gold || 0);
+/**
+ * Welcome Back Message
+ */
+function showWelcomeBack() {
+	const progress = systems.xp.getProgress();
+	const streak = systems.streaks.getStreak();
 
-    let message = `Welcome back! Level ${progress.level} ${levelData.title}`;
+	if (progress.level <= 1 && streak.current === 0) return;
 
-    if (streak.current > 0) {
-        message += ` | 🔥 ${streak.current} day streak`;
-    }
-
-    if (totalBoxes > 0) {
-        message += ` | 📦 ${totalBoxes} Mystery Boxes waiting`;
-    }
-
-    // Only show if user has some progress
-    if (progress.level > 1 || streak.current > 0) {
-        vscode.window.showInformationMessage(
-            message,
-            "Open Dashboard",
-            "Dismiss",
-        );
-    }
+	vscode.window.showInformationMessage(
+		`Welcome back! Level ${progress.level} | Streak ${streak.current}`,
+	);
 }
 
-module.exports = { activate, deactivate };
+module.exports = {
+	activate,
+	deactivate,
+};

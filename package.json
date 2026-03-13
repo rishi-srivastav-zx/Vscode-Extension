@@ -2,7 +2,7 @@
 	"name": "code-core",
 	"displayName": "CODE CORE",
 	"description": "Gamified coding. Level up your development.",
-	"version": "0.1.4",
+	"version": "0.1.5",
 	"publisher": "Rishisrivastav",
 	"repository": {
 		"type": "git",
@@ -67,22 +67,21 @@
 				"category": "CODE CORE"
 			}
 		],
-		"views": {
-			"explorer": [
-				{
-					"id": "codecore.sidebar",
-					"name": "CODE CORE",
-					"when": "true",
-					"type": "webview"
-				}
-			]
-		},
 		"viewsContainers": {
 			"activitybar": [
 				{
 					"id": "codecore",
 					"title": "CODE CORE",
-					"icon": "$(zap)"
+					"icon": "media/icon.svg"
+				}
+			]
+		},
+		"views": {
+			"codecore": [
+				{
+					"id": "codecore.sidebar",
+					"name": "CODE CORE",
+					"type": "webview"
 				}
 			]
 		},
@@ -98,7 +97,8 @@
 					"type": "number",
 					"default": 0.5,
 					"minimum": 0,
-					"maximum": 1
+					"maximum": 1,
+					"description": "Sound volume level"
 				},
 				"codecore.showStatusBar": {
 					"type": "boolean",
