@@ -69,6 +69,20 @@ async function syncProgress(userId, progress) {
 	try {
 		const username = progress.username || getDisplayName();
 
+		// Update or create profile with username
+		await supabase
+			.from("profiles")
+			.upsert(
+				{
+					id: userId,
+					username: username,
+					updated_at: new Date().toISOString(),
+				},
+				{ onConflict: "id" },
+			)
+			.select();
+
+		// Get or create user_progress record
 		const { data: existing } = await supabase
 			.from("user_progress")
 			.select("id")
@@ -80,8 +94,7 @@ async function syncProgress(userId, progress) {
 			level: progress.level,
 			current_streak: progress.streak,
 			longest_streak: progress.longestStreak,
-			username: username,
-			last_active: new Date().toISOString().split("T")[0],
+			last_active: new Date().toISOString(),
 			updated_at: new Date().toISOString(),
 		};
 
@@ -166,9 +179,9 @@ async function getLeaderboard(limit = 10) {
 	try {
 		const { data, error } = await supabase
 			.from("leaderboard")
-			.select("*")
-			.eq("period", "all_time")
-			.order("total_xp", { ascending: false })
+			.select(
+				"rank,username,avatar_url,total_xp,level,current_streak,longest_streak,lines_written,files_saved,user_id",
+			)
 			.limit(limit);
 
 		return { data: data || [], error };
@@ -179,7 +192,7 @@ async function getLeaderboard(limit = 10) {
 }
 
 /**
- * Update leaderboard entry
+ * Update user profile (for leaderboard display)
  */
 async function updateLeaderboard(userId, totalXP, level = 1, username = null) {
 	if (!supabase) return { data: null, error: "Supabase not configured" };
@@ -187,40 +200,27 @@ async function updateLeaderboard(userId, totalXP, level = 1, username = null) {
 	try {
 		const displayName = username || getDisplayName();
 
-		const { data: existing } = await supabase
-			.from("leaderboard")
-			.select("id")
-			.eq("user_id", userId)
-			.eq("period", "all_time")
-			.maybeSingle();
+		// Update or create profile with username
+		const { data: profileData, error: profileError } = await supabase
+			.from("profiles")
+			.upsert(
+				{
+					id: userId,
+					username: displayName,
+					updated_at: new Date().toISOString(),
+				},
+				{ onConflict: "id" },
+			)
+			.select();
 
-		const payload = {
-			total_xp: totalXP,
-			level: level,
-			username: displayName,
-			updated_at: new Date().toISOString(),
-		};
-
-		if (existing) {
-			const { data, error } = await supabase
-				.from("leaderboard")
-				.update(payload)
-				.eq("id", existing.id)
-				.select();
-
-			return { data, error };
-		} else {
-			const { data, error } = await supabase
-				.from("leaderboard")
-				.insert({
-					user_id: userId,
-					period: "all_time",
-					...payload,
-				})
-				.select();
-
-			return { data, error };
+		if (profileError) {
+			console.error("[Supabase] Profile update error:", profileError);
+			return { data: null, error: profileError };
 		}
+
+		// The leaderboard view will automatically reflect changes from user_progress
+		// which was already updated via addXP or syncProgress
+		return { data: profileData, error: null };
 	} catch (err) {
 		console.error("[Supabase] updateLeaderboard error:", err);
 		return { data: null, error: err.message };
@@ -242,6 +242,165 @@ async function getUserId() {
 	}
 }
 
+/**
+ * Add XP and automatically calculate level-up via database function
+ */
+async function addXP(userId, xpAmount, reason, metadata = null) {
+	if (!supabase) return { data: null, error: "Supabase not configured" };
+
+	try {
+		const { data, error } = await supabase.rpc("add_xp_and_update_level", {
+			p_user_id: userId,
+			p_xp_amount: xpAmount,
+			p_reason: reason,
+			p_metadata: metadata,
+		});
+
+		if (error) {
+			console.error("[Supabase] addXP error:", error);
+			return { data: null, error };
+		}
+
+		return { data, error: null };
+	} catch (err) {
+		console.error("[Supabase] addXP exception:", err);
+		return { data: null, error: err.message };
+	}
+}
+
+/**
+ * Update user's daily streak via database function
+ */
+async function updateStreak(userId) {
+	if (!supabase) return { data: null, error: "Supabase not configured" };
+
+	try {
+		const { data, error } = await supabase.rpc("update_streak", {
+			p_user_id: userId,
+		});
+
+		if (error) {
+			console.error("[Supabase] updateStreak error:", error);
+			return { data: null, error };
+		}
+
+		return { data, error: null };
+	} catch (err) {
+		console.error("[Supabase] updateStreak exception:", err);
+		return { data: null, error: err.message };
+	}
+}
+
+/**
+ * Reset streaks for all inactive users (call on startup)
+ */
+async function resetInactiveStreaks() {
+	if (!supabase) return { error: "Supabase not configured" };
+
+	try {
+		const { error } = await supabase.rpc("reset_inactive_streaks");
+
+		if (error) {
+			console.error("[Supabase] resetInactiveStreaks error:", error);
+			return { error };
+		}
+
+		return { error: null };
+	} catch (err) {
+		console.error("[Supabase] resetInactiveStreaks exception:", err);
+		return { error: err.message };
+	}
+}
+
+/**
+ * Create or get user profile
+ */
+async function createOrGetProfile(userId, username) {
+	if (!supabase) return { data: null, error: "Supabase not configured" };
+
+	try {
+		// Check if profile exists
+		const { data: existing, error: fetchError } = await supabase
+			.from("profiles")
+			.select("id")
+			.eq("id", userId)
+			.maybeSingle();
+
+		if (fetchError) {
+			console.error("[Supabase] Profile fetch error:", fetchError);
+			return { data: null, error: fetchError };
+		}
+
+		if (existing) {
+			return { data: existing, error: null };
+		}
+
+		// Create new profile
+		const { data: newProfile, error: createError } = await supabase
+			.from("profiles")
+			.insert([
+				{
+					id: userId,
+					username: username,
+					created_at: new Date().toISOString(),
+					updated_at: new Date().toISOString(),
+				},
+			])
+			.select()
+			.single();
+
+		if (createError) {
+			console.error("[Supabase] Profile creation error:", createError);
+			return { data: null, error: createError };
+		}
+
+		// Create associated progress record
+		const { error: progressError } = await supabase
+			.from("user_progress")
+			.insert([
+				{
+					user_id: userId,
+					created_at: new Date().toISOString(),
+					updated_at: new Date().toISOString(),
+				},
+			]);
+
+		if (progressError) {
+			console.error("[Supabase] Progress creation error:", progressError);
+		}
+
+		return { data: newProfile, error: null };
+	} catch (err) {
+		console.error("[Supabase] createOrGetProfile exception:", err);
+		return { data: null, error: err.message };
+	}
+}
+
+/**
+ * Log achievement unlock
+ */
+async function logAchievement(userId, achievementKey) {
+	if (!supabase) return { data: null, error: "Supabase not configured" };
+
+	try {
+		const { data, error } = await supabase
+			.from("achievements")
+			.upsert([
+				{
+					user_id: userId,
+					achievement_key: achievementKey,
+					unlocked_at: new Date().toISOString(),
+				},
+			])
+			.select();
+
+		return { data, error };
+	} catch (err) {
+		console.error("[Supabase] logAchievement error:", err);
+		return { data: null, error: err.message };
+	}
+}
+
 module.exports = {
 	supabase,
 	isConfigured,
@@ -251,4 +410,10 @@ module.exports = {
 	getLeaderboard,
 	updateLeaderboard,
 	getUserId,
+	addXP,
+	updateStreak,
+	resetInactiveStreaks,
+	createOrGetProfile,
+	logAchievement,
+	getDisplayName,
 };

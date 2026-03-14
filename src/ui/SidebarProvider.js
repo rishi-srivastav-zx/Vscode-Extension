@@ -5,20 +5,50 @@ const vscode = require("vscode");
 const supabase = require("../supabaseClient/supabaseClient");
 const crypto = require("crypto");
 
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+
 function getUserId() {
-    const hostname = require('os').hostname();
-    const username = require('os').userInfo().username;
-    const hash = crypto.createHash('md5').update(hostname + '_' + username).digest('hex');
-    return hash.substring(0, 8) + '-' + hash.substring(8, 12) + '-' + hash.substring(12, 16) + '-' + hash.substring(16, 20) + '-' + hash.substring(20, 32);
+	const hostname = require("os").hostname();
+	const username = require("os").userInfo().username;
+	const hash = crypto
+		.createHash("md5")
+		.update(hostname + "_" + username)
+		.digest("hex");
+	return (
+		hash.substring(0, 8) +
+		"-" +
+		hash.substring(8, 12) +
+		"-" +
+		hash.substring(12, 16) +
+		"-" +
+		hash.substring(16, 20) +
+		"-" +
+		hash.substring(20, 32)
+	);
 }
 
 function getDisplayName() {
-    const os = require('os');
-    const username = os.userInfo().username;
-    const hostname = os.hostname();
-    return `${username}@${hostname.substring(0, 8)}`;
+	const os = require("os");
+	const username = os.userInfo().username;
+	const hostname = os.hostname();
+	return `${username}@${hostname.substring(0, 8)}`;
 }
 
+function _getNonce() {
+	const chars =
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+	let nonce = "";
+	for (let i = 0; i < 32; i++) {
+		nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+	}
+	return nonce;
+}
+
+// ─────────────────────────────────────────────────────────────
+// SidebarProvider
+// ─────────────────────────────────────────────────────────────
 
 class SidebarProvider {
 	/** @param {vscode.Uri} extensionUri */
@@ -48,7 +78,6 @@ class SidebarProvider {
 
 		webviewView.webview.html = this._buildHtml(webviewView.webview);
 
-		// CRITICAL: Set up message handler immediately
 		const messageDisposable = webviewView.webview.onDidReceiveMessage(
 			async (msg) => {
 				console.log("[CodeCore] Received message:", msg.type);
@@ -57,16 +86,26 @@ class SidebarProvider {
 					case "getData":
 						this.sendData();
 						break;
+
 					case "getProfile":
 						this.sendProfile();
 						break;
+
 					case "saveProfile":
 						await this.saveProfile(msg.username);
 						break;
+
 					case "getLeaderboard":
 						console.log("[CodeCore] Processing getLeaderboard");
-						await this.sendLeaderboard(); // Ensure await is here
+						await this.sendLeaderboard();
 						break;
+
+					// ── ACHIEVEMENTS ──────────────────────────────
+					case "getAchievements":
+						console.log("[CodeCore] Processing getAchievements");
+						this.sendAchievements();
+						break;
+
 					case "openSettings":
 						vscode.commands.executeCommand(
 							"workbench.action.openSettings",
@@ -79,7 +118,7 @@ class SidebarProvider {
 
 		this._disposables.push(messageDisposable);
 
-		// Send initial data
+		// Send initial data after webview is ready
 		setTimeout(() => this.sendData(), 100);
 
 		webviewView.onDidDispose(() => this.dispose());
@@ -108,6 +147,79 @@ class SidebarProvider {
 		this._post({ type: "activity", data: activity ?? {} });
 	}
 
+	/**
+	 * Send a raw message to the webview.
+	 * Used by ActivityTracker to push achievement unlock toasts.
+	 * @param {object} msg
+	 */
+	postMessage(msg) {
+		this._post(msg);
+	}
+
+	// ─────────────────────────────────────────────────────────
+	// Achievements
+	// ─────────────────────────────────────────────────────────
+
+	/**
+	 * Send the full achievement list to the webview (for the Badges screen).
+	 */
+	sendAchievements() {
+		if (!this.view) {
+			console.log("[CodeCore] sendAchievements: No view available");
+			return;
+		}
+
+		try {
+			const all = this.systems.achievements.getAllAchievements();
+			console.log(
+				`[CodeCore] sendAchievements: sending ${all.length} achievements`,
+			);
+			this._post({ type: "achievements", data: all });
+		} catch (err) {
+			console.error("[CodeCore] sendAchievements error:", err);
+			this._post({ type: "achievements", data: [] });
+		}
+	}
+
+	/**
+	 * Check for newly unlocked achievements and push toast notifications
+	 * to the webview + VS Code notification.
+	 * Call this after any XP-gaining event.
+	 */
+	async checkAndNotifyAchievements() {
+		try {
+			const newUnlocks = this.systems.achievements.checkUnlocks();
+
+			for (const ach of newUnlocks) {
+				console.log(`[CodeCore] Achievement unlocked: ${ach.name}`);
+
+				// Push toast to webview
+				this._post({
+					type: "achievementUnlocked",
+					achievement: ach,
+				});
+
+				// VS Code notification
+				vscode.window.showInformationMessage(
+					`🎖 Achievement Unlocked: ${ach.name} — ${ach.desc}`,
+				);
+
+				// Sound
+				this.systems.sounds?.play("achievement");
+			}
+
+			// Refresh sidebar data if anything unlocked
+			if (newUnlocks.length > 0) {
+				this.sendData();
+			}
+
+			return newUnlocks;
+		} catch (err) {
+			console.error("[CodeCore] checkAndNotifyAchievements error:", err);
+			return [];
+		}
+	}
+
 	// ─────────────────────────────────────────────────────────
 	// Profile
 	// ─────────────────────────────────────────────────────────
@@ -116,9 +228,7 @@ class SidebarProvider {
 		if (!this.view) return;
 
 		try {
-			const userId = getUserId();
 			const savedUsername = this.systems.storage.get("username") || "";
-			
 			this._post({
 				type: "profileData",
 				username: savedUsername,
@@ -133,26 +243,31 @@ class SidebarProvider {
 
 		try {
 			const userId = getUserId();
-			
+
 			// Save locally
 			this.systems.storage.set("username", username);
-			
+
 			// Sync to Supabase
 			if (supabase.isConfigured()) {
 				const progress = this.systems.xp.getProgress();
 				const streak = this.systems.streaks.getStreak();
-				
+
 				await supabase.syncProgress(userId, {
 					totalXP: progress.xp,
 					level: progress.level,
 					streak: streak.current,
 					longestStreak: streak.longest,
-					username: username
+					username: username,
 				});
-				
-				await supabase.updateLeaderboard(userId, progress.xp, progress.level, username);
+
+				await supabase.updateLeaderboard(
+					userId,
+					progress.xp,
+					progress.level,
+					username,
+				);
 			}
-			
+
 			this._post({
 				type: "profileSaved",
 				success: true,
@@ -191,9 +306,9 @@ class SidebarProvider {
 				activeMinutes: 0,
 			};
 
-			// Get user ID for highlighting current user in the leaderboard
 			const userId = getUserId();
-			const savedUsername = this.systems.storage.get("username") || getDisplayName();
+			const savedUsername =
+				this.systems.storage.get("username") || getDisplayName();
 
 			this._post({
 				type: "data",
@@ -219,10 +334,10 @@ class SidebarProvider {
 					displayName: savedUsername,
 				},
 			});
+
 			console.log("[CodeCore] sendData: Data sent successfully");
 		} catch (err) {
 			console.error("[CodeCore] SidebarProvider.sendData error:", err);
-			// Send error state to webview
 			this._post({
 				type: "data",
 				data: {
@@ -246,6 +361,10 @@ class SidebarProvider {
 		}
 	}
 
+	// ─────────────────────────────────────────────────────────
+	// Leaderboard
+	// ─────────────────────────────────────────────────────────
+
 	async sendLeaderboard() {
 		console.log(
 			"[CodeCore] sendLeaderboard called, view exists:",
@@ -262,7 +381,6 @@ class SidebarProvider {
 			console.log("[CodeCore] Supabase configured:", configured);
 
 			if (!configured) {
-				console.log("[CodeCore] Supabase not configured");
 				this._post({
 					type: "leaderboard",
 					data: [],
@@ -271,23 +389,27 @@ class SidebarProvider {
 				return;
 			}
 
-			// First, sync current user's progress
-			console.log("[CodeCore] Syncing current user progress first...");
 			const progress = this.systems.xp.getProgress();
 			const streak = this.systems.streaks.getStreak();
-			// Use saved username or default display name
-			const savedUsername = this.systems.storage.get("username") || getDisplayName();
-			
-			await supabase.syncProgress(getUserId(), {
+			const savedUsername =
+				this.systems.storage.get("username") || getDisplayName();
+			const userId = getUserId();
+
+			// Sync current user first
+			await supabase.syncProgress(userId, {
 				totalXP: progress.xp,
 				level: progress.level,
 				streak: streak.current,
 				longestStreak: streak.longest,
-				username: savedUsername
+				username: savedUsername,
 			});
-			await supabase.updateLeaderboard(getUserId(), progress.xp, progress.level, savedUsername);
+			await supabase.updateLeaderboard(
+				userId,
+				progress.xp,
+				progress.level,
+				savedUsername,
+			);
 
-			console.log("[CodeCore] Fetching leaderboard...");
 			const result = await supabase.getLeaderboard(10);
 			console.log("[CodeCore] Got leaderboard result:", result);
 
@@ -301,29 +423,32 @@ class SidebarProvider {
 			}
 
 			let leaderboard = result.data || [];
-			
-			// Ensure current user is in the leaderboard
-			const currentUserId = getUserId();
-			const currentUser = leaderboard.find(e => e.user_id === currentUserId);
-			const displayName = this.systems.storage.get("username") || getDisplayName();
-			
+
+			// Ensure current user appears in the list
+			const currentUser = leaderboard.find((e) => e.user_id === userId);
 			if (!currentUser) {
 				leaderboard.push({
-					user_id: currentUserId,
-					username: displayName,
+					user_id: userId,
+					username: savedUsername,
 					total_xp: progress.xp,
 					level: progress.level,
-					isCurrentUser: true
+					isCurrentUser: true,
 				});
-				leaderboard = leaderboard.sort((a, b) => (b.total_xp || 0) - (a.total_xp || 0));
+				leaderboard = leaderboard.sort(
+					(a, b) => (b.total_xp || 0) - (a.total_xp || 0),
+				);
 			}
 
 			const processedLeaderboard = leaderboard.map((entry) => ({
 				...entry,
-				isCurrentUser: entry.user_id === currentUserId,
+				isCurrentUser: entry.user_id === userId,
 			}));
 
-			console.log("[CodeCore] Sending leaderboard to webview, entries:", processedLeaderboard.length);
+			console.log(
+				"[CodeCore] Sending leaderboard, entries:",
+				processedLeaderboard.length,
+			);
+
 			this._post({
 				type: "leaderboard",
 				data: processedLeaderboard,
@@ -361,42 +486,23 @@ class SidebarProvider {
 		return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy"
-          content="default-src 'none';
-                   font-src https://fonts.gstatic.com;
-                   style-src ${webview.cspSource} https://fonts.googleapis.com 'unsafe-inline';
-                   script-src 'nonce-${nonce}';">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-    <link href="${styleUri}" rel="stylesheet">
-    <title>CODE CORE</title>
+	<meta charset="UTF-8">
+	<meta http-equiv="Content-Security-Policy"
+		  content="default-src 'none';
+				   font-src https://fonts.gstatic.com;
+				   style-src ${webview.cspSource} https://fonts.googleapis.com 'unsafe-inline';
+				   script-src 'nonce-${nonce}';">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+	<link href="${styleUri}" rel="stylesheet">
+	<title>CODE CORE</title>
 </head>
 <body>
-    <div id="app">
-        <div class="loading">
-            <div class="loading-spinner"></div>
-            <span>Initializing...</span>
-        </div>
-    </div>
-    <script nonce="${nonce}" src="${scriptUri}"></script>
+	<div id="app"></div>
+	<script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
 	}
-}
-
-// ─────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────
-
-function _getNonce() {
-    const chars =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let nonce = "";
-    for (let i = 0; i < 32; i++) {
-        nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return nonce;
 }
 
 module.exports = SidebarProvider;

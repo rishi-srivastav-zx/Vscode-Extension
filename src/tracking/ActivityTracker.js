@@ -3,337 +3,523 @@ const supabase = require("../supabaseClient/supabaseClient");
 const crypto = require("crypto");
 const os = require("os");
 
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+
 function generateUserId() {
-    const hostname = os.hostname();
-    const username = os.userInfo().username;
-    const hash = crypto.createHash('md5').update(hostname + '_' + username).digest('hex');
-    return hash.substring(0, 8) + '-' + hash.substring(8, 12) + '-' + hash.substring(12, 16) + '-' + hash.substring(16, 20) + '-' + hash.substring(20, 32);
+	const hostname = os.hostname();
+	const username = os.userInfo().username;
+	const hash = crypto
+		.createHash("md5")
+		.update(hostname + "_" + username)
+		.digest("hex");
+	return (
+		hash.substring(0, 8) +
+		"-" +
+		hash.substring(8, 12) +
+		"-" +
+		hash.substring(12, 16) +
+		"-" +
+		hash.substring(16, 20) +
+		"-" +
+		hash.substring(20, 32)
+	);
 }
 
 function getDisplayName() {
-    const username = os.userInfo().username;
-    const hostname = os.hostname();
-    return `${username}@${hostname.substring(0, 8)}`;
+	const username = os.userInfo().username;
+	const hostname = os.hostname();
+	return `${username}@${hostname.substring(0, 8)}`;
 }
 
+// ─────────────────────────────────────────────────────────────
+// ActivityTracker
+// ─────────────────────────────────────────────────────────────
+
 class ActivityTracker {
-    constructor(systems) {
-        this.systems = systems;
-        this.disposables = [];
-        this.diagnostics = new Map();
-        this.lastComboNotification = 0;
-        this.userId = generateUserId();
-        this.displayName = getDisplayName();
-    }
+	constructor(systems) {
+		this.systems = systems;
+		this.disposables = [];
+		this.diagnostics = new Map();
+		this.lastComboNotification = 0;
+		this.userId = generateUserId();
+		this.displayName = getDisplayName();
+		this.lastStreakUpdateDate = null;
+	}
 
-    async syncProgress() {
-        if (!supabase.isConfigured()) {
-            console.log("[ActivityTracker] Supabase not configured, skipping sync");
-            return;
-        }
-        console.log("[ActivityTracker] Syncing progress to Supabase...");
-        const progress = this.systems.xp.getProgress();
-        const streak = this.systems.streaks.getStreakStatus();
-        console.log("[ActivityTracker] Progress to sync:", { userId: this.userId, totalXP: progress.xp, level: progress.level });
-        
-        await supabase.syncProgress(this.userId, {
-            totalXP: progress.xp,
-            level: progress.level,
-            streak: streak.current,
-            longestStreak: streak.longest,
-            username: this.displayName
-        });
-        
-        const lbResult = await supabase.updateLeaderboard(this.userId, progress.xp, progress.level, this.displayName);
-        console.log("[ActivityTracker] Leaderboard update result:", lbResult);
-    }
+	// ─────────────────────────────────────────────────────────
+	// Initialization
+	// ─────────────────────────────────────────────────────────
 
-    start() {
-        this.disposables.push(
-            vscode.workspace.onDidSaveTextDocument((doc) => this.onSave(doc)),
-        );
+	async onActivate() {
+		if (!supabase.isConfigured()) return;
 
-        this.disposables.push(
-            vscode.workspace.onDidCreateFiles((e) => this.onCreate(e)),
-        );
+		try {
+			// Create or get user profile
+			const { data, error } = await supabase.createOrGetProfile(
+				this.userId,
+				this.displayName,
+			);
 
-        this.disposables.push(
-            vscode.workspace.onDidDeleteFiles(() => this.onDelete()),
-        );
+			if (error) {
+				console.log(
+					"[ActivityTracker] Profile creation failed:",
+					error,
+				);
+				return;
+			}
 
-        this.disposables.push(
-            vscode.languages.onDidChangeDiagnostics((e) =>
-                this.onDiagnosticsChange(e),
-            ),
-        );
+			console.log("[ActivityTracker] User profile ready:", this.userId);
 
-        this.disposables.push(
-            vscode.window.onDidChangeActiveTextEditor((e) =>
-                this.onEditorChange(e),
-            ),
-        );
+			// Reset inactive streaks (once on startup)
+			await supabase.resetInactiveStreaks();
 
-        this.initGitTracking();
+			// Sync progress from database
+			await this.syncProgressFromDatabase();
+		} catch (err) {
+			console.error("[ActivityTracker] onActivate error:", err);
+		}
+	}
 
-        this.updateDiagnostics();
-    }
+	// ─────────────────────────────────────────────────────────
+	// Supabase sync
+	// ─────────────────────────────────────────────────────────
 
-    async onSave(doc) {
-        if (doc.isUntitled || doc.uri.scheme !== "file") return;
+	async syncProgressFromDatabase() {
+		if (!supabase.isConfigured()) return;
 
-        const result = await this.systems.xp.addXP(5, "file_save", {
-            file: doc.fileName,
-            language: doc.languageId,
-        });
+		try {
+			const { data, error } = await supabase.getProgress(this.userId);
 
-        if (result) {
-            // Handle Level Up
-            if (result.leveledUp) {
-                this.systems.sounds.play("levelUp");
-                this.showLevelUpNotification(result);
-            }
+			if (error) {
+				console.error(
+					"[ActivityTracker] Failed to sync progress:",
+					error,
+				);
+				return;
+			}
 
-            // Handle Combo Milestones (every 5 combos)
-            if (result.combo > 0 && result.combo % 5 === 0) {
-                this.showComboNotification(result.combo);
-            }
+			if (data) {
+				// Update local systems with database values
+				this.systems.xp.storage.set("totalXp", data.total_xp);
+				this.systems.xp.storage.set("level", data.level);
 
-            // Play save sound if not level up (to avoid overlap)
-            if (!result.leveledUp) {
-                this.systems.sounds.play("save");
-            }
-        }
+				if (this.systems.streaks) {
+					this.systems.streaks.storage.set("streak", {
+						current: data.current_streak,
+						longest: data.longest_streak,
+					});
+				}
 
-        this.updateLanguageStats(doc.languageId);
-        this.systems.statusBar.update();
-        this.checkAchievements();
-        this.syncProgress();
-    }
+				console.log(
+					`[ActivityTracker] Progress synced: Level ${data.level}, XP: ${data.total_xp}`,
+				);
+			}
+		} catch (err) {
+			console.error(
+				"[ActivityTracker] syncProgressFromDatabase error:",
+				err,
+			);
+		}
+	}
 
-    async onCreate(e) {
-        let leveledUp = false;
-        let totalXP = 0;
-        let highestCombo = 0;
+	// ─────────────────────────────────────────────────────────
+	// Start / Stop
+	// ─────────────────────────────────────────────────────────
 
-        for (const file of e.files) {
-            const result = await this.systems.xp.addXP(10, "file_create", {
-                file: file.fsPath,
-            });
+	start() {
+		this.disposables.push(
+			vscode.workspace.onDidSaveTextDocument((doc) => this.onSave(doc)),
+		);
 
-            if (result) {
-                if (result.leveledUp) leveledUp = true;
-                totalXP += result.added;
-                highestCombo = Math.max(highestCombo, result.combo);
-            }
-        }
+		this.disposables.push(
+			vscode.workspace.onDidCreateFiles((e) => this.onCreate(e)),
+		);
 
-        if (leveledUp) {
-            this.systems.sounds.play("levelUp");
-        }
+		this.disposables.push(
+			vscode.workspace.onDidDeleteFiles(() => this.onDelete()),
+		);
 
-        this.systems.sounds.play("create");
-        this.systems.statusBar.update();
-        this.checkAchievements();
-        this.syncProgress();
-    }
+		this.disposables.push(
+			vscode.languages.onDidChangeDiagnostics((e) =>
+				this.onDiagnosticsChange(e),
+			),
+		);
 
-    onDelete() {
-        this.systems.sounds.play("delete");
-    }
+		this.disposables.push(
+			vscode.window.onDidChangeActiveTextEditor((e) =>
+				this.onEditorChange(e),
+			),
+		);
 
-    onEditorChange(editor) {
-        if (editor) {
-            this.updateLanguageStats(editor.document.languageId);
-        }
-    }
+		this.initGitTracking();
+		this.updateDiagnostics();
+	}
 
-    updateLanguageStats(language) {
-        if (!language || language === "plaintext") return;
+	stop() {
+		this.disposables.forEach((d) => d.dispose());
+		this.disposables = [];
+	}
 
-        const stats = this.systems.storage.get("stats") || {};
-        if (!stats.languages) stats.languages = {};
-        stats.languages[language] = (stats.languages[language] || 0) + 1;
-        this.systems.storage.set("stats", stats);
-    }
+	// ─────────────────────────────────────────────────────────
+	// Event handlers
+	// ─────────────────────────────────────────────────────────
 
-    updateDiagnostics() {
-        const uris = vscode.workspace.textDocuments
-            .filter((d) => d.uri.scheme === "file")
-            .map((d) => d.uri);
+	async onSave(doc) {
+		if (doc.isUntitled || doc.uri.scheme !== "file") return;
 
-        for (const uri of uris) {
-            const diags = vscode.languages.getDiagnostics(uri);
-            const errorCount = diags.filter(
-                (d) => d.severity === vscode.DiagnosticSeverity.Error,
-            ).length;
-            this.diagnostics.set(uri.toString(), errorCount);
-        }
-    }
+		if (supabase.isConfigured()) {
+			const { data, error } = await supabase.addXP(
+				this.userId,
+				5,
+				"file_saved",
+				{
+					file_name: doc.fileName,
+					file_type: doc.languageId,
+					lines: doc.lineCount,
+					timestamp: new Date().toISOString(),
+				},
+			);
 
-    async onDiagnosticsChange(e) {
-        for (const uri of e.uris) {
-            const oldCount = this.diagnostics.get(uri.toString()) || 0;
-            const newDiags = vscode.languages.getDiagnostics(uri);
-            const newCount = newDiags.filter(
-                (d) => d.severity === vscode.DiagnosticSeverity.Error,
-            ).length;
+			if (!error && data) {
+				if (data[0].level_up) {
+					this.systems.sounds.play("levelUp");
+					this.showLevelUpNotification({ level: data[0].new_level });
+				} else {
+					this.systems.sounds.play("save");
+				}
 
-            if (newCount < oldCount && oldCount > 0) {
-                const fixed = oldCount - newCount;
-                const result = await this.systems.xp.addXP(
-                    20 * fixed,
-                    "error_fix",
-                    {
-                        file: uri.fsPath,
-                        fixed: fixed,
-                    },
-                );
+				// Update local cache
+				this.systems.xp.storage.set("totalXp", data[0].new_xp);
+				this.systems.xp.storage.set("level", data[0].new_level);
+			}
+		} else {
+			// Fallback to local if Supabase not configured
+			const result = await this.systems.xp.addXP(5, "file_save", {
+				file: doc.fileName,
+				language: doc.languageId,
+			});
 
-                if (result) {
-                    if (result.leveledUp) {
-                        this.systems.sounds.play("levelUp");
-                        this.showLevelUpNotification(result);
-                    }
+			if (result && result.leveledUp) {
+				this.systems.sounds.play("levelUp");
+				this.showLevelUpNotification(result);
+			}
+		}
 
-                    if (result.combo > 0 && result.combo % 5 === 0) {
-                        this.showComboNotification(result.combo);
-                    }
+		this.updateLanguageStats(doc.languageId);
+		this.systems.statusBar.update();
 
-                    // Play error fix sound if not level up
-                    if (!result.leveledUp) {
-                        this.systems.sounds.play("errorFix");
-                    }
-                }
+		await this.checkAchievements();
+		await this.updateStreakIfNeeded();
+	}
 
-                this.systems.statusBar.update();
-            }
+	async updateStreakIfNeeded() {
+		if (!supabase.isConfigured()) return;
 
-            this.diagnostics.set(uri.toString(), newCount);
-        }
+		const today = new Date().toDateString();
+		if (this.lastStreakUpdateDate === today) return;
 
-        this.checkAchievements();
-    }
+		try {
+			const { data, error } = await supabase.updateStreak(this.userId);
 
-    async initGitTracking() {
-        const gitExtension = vscode.extensions.getExtension("vscode.git");
-        if (!gitExtension) return;
+			if (!error && data) {
+				this.lastStreakUpdateDate = today;
 
-        try {
-            const git = await gitExtension.activate();
-            const api = git.getAPI(1);
+				// Update local cache
+				this.systems.streaks?.storage.set("streak", {
+					current: data[0].current_streak,
+					longest: data[0].longest_streak,
+				});
 
-            // Track commits via repository state changes
-            let lastCommitCount = 0;
+				console.log(
+					`[ActivityTracker] Streak updated: ${data[0].current_streak} days`,
+				);
+			}
+		} catch (err) {
+			console.error("[ActivityTracker] updateStreakIfNeeded error:", err);
+		}
+	}
 
-            const checkCommits = () => {
-                const repos = api.repositories;
-                if (repos.length > 0) {
-                    const repo = repos[0];
-                    const currentCommitCount = repo.state.HEAD?.commit || 0;
+	async onCreate(e) {
+		let leveledUp = false;
 
-                    if (
-                        currentCommitCount > lastCommitCount &&
-                        lastCommitCount > 0
-                    ) {
-                        this.onCommit();
-                    }
-                    lastCommitCount = currentCommitCount;
-                }
-            };
+		for (const file of e.files) {
+			if (supabase.isConfigured()) {
+				const { data, error } = await supabase.addXP(
+					this.userId,
+					10,
+					"file_created",
+					{
+						file_path: file.fsPath,
+						timestamp: new Date().toISOString(),
+					},
+				);
 
-            api.onDidChangeState?.(checkCommits);
+				if (!error && data) {
+					if (data[0].level_up) leveledUp = true;
+					this.systems.xp.storage.set("totalXp", data[0].new_xp);
+					this.systems.xp.storage.set("level", data[0].new_level);
+				}
+			} else {
+				const result = await this.systems.xp.addXP(10, "file_create", {
+					file: file.fsPath,
+				});
 
-            // Also check periodically as fallback
-            setInterval(checkCommits, 5000);
+				if (result && result.leveledUp) leveledUp = true;
+			}
+		}
 
-            checkCommits();
-        } catch (err) {
-            console.log("Git tracking not available:", err.message);
-        }
-    }
+		if (leveledUp) {
+			this.systems.sounds.play("levelUp");
+		} else {
+			this.systems.sounds.play("create");
+		}
 
-    async onCommit() {
-        const result = await this.systems.xp.addXP(50, "commit", {
-            timestamp: Date.now(),
-        });
+		this.systems.statusBar.update();
 
-        if (result) {
-            if (result.leveledUp) {
-                this.systems.sounds.play("levelUp");
-                this.showLevelUpNotification(result);
-            } else {
-                this.systems.sounds.play("commit");
-            }
+		await this.checkAchievements();
+		await this.updateStreakIfNeeded();
+	}
 
-            if (result.combo > 0 && result.combo % 5 === 0) {
-                this.showComboNotification(result.combo);
-            }
-        }
+	onDelete() {
+		this.systems.sounds.play("delete");
+	}
 
-        this.systems.statusBar.update();
-        this.checkAchievements();
-        this.syncProgress();
-    }
+	onEditorChange(editor) {
+		if (editor) {
+			this.updateLanguageStats(editor.document.languageId);
+		}
+	}
 
-    showLevelUpNotification(result) {
-        const progress = this.systems.xp.getProgress();
-        const nextUnlock = progress.nextUnlock;
+	async onDiagnosticsChange(e) {
+		for (const uri of e.uris) {
+			const oldCount = this.diagnostics.get(uri.toString()) || 0;
+			const newDiags = vscode.languages.getDiagnostics(uri);
+			const newCount = newDiags.filter(
+				(d) => d.severity === vscode.DiagnosticSeverity.Error,
+			).length;
 
-        let message = `🎉 LEVEL ${result.level}!`;
-        if (nextUnlock) {
-            message += ` Next unlock at Level ${nextUnlock.level}: ${nextUnlock.reward}`;
-        }
+			if (newCount < oldCount && oldCount > 0) {
+				const fixed = oldCount - newCount;
+				const xpAmount = 20 * fixed;
 
-        vscode.window
-            .showInformationMessage(message, "View Rewards")
-            .then((selection) => {
-                if (selection === "View Rewards") {
-                    this.systems.sidebar?.reveal();
-                }
-            });
-    }
+				if (supabase.isConfigured()) {
+					const { data, error } = await supabase.addXP(
+						this.userId,
+						xpAmount,
+						"error_fixed",
+						{
+							file_path: uri.fsPath,
+							errors_fixed: fixed,
+							timestamp: new Date().toISOString(),
+						},
+					);
 
-    showComboNotification(combo) {
-        // Debounce combo notifications (max 1 per 3 seconds)
-        const now = Date.now();
-        if (now - this.lastComboNotification < 3000) return;
-        this.lastComboNotification = now;
+					if (!error && data) {
+						if (data[0].level_up) {
+							this.systems.sounds.play("levelUp");
+							this.showLevelUpNotification({
+								level: data[0].new_level,
+							});
+						} else {
+							this.systems.sounds.play("errorFix");
+						}
+						this.systems.xp.storage.set("totalXp", data[0].new_xp);
+						this.systems.xp.storage.set("level", data[0].new_level);
+					}
+				} else {
+					const result = await this.systems.xp.addXP(
+						xpAmount,
+						"error_fix",
+						{
+							file: uri.fsPath,
+							fixed: fixed,
+						},
+					);
 
-        const emojis = ["🔥", "⚡", "💥", "🚀", "👑"];
-        const emoji =
-            emojis[Math.min(Math.floor(combo / 10), emojis.length - 1)];
+					if (result && result.leveledUp) {
+						this.systems.sounds.play("levelUp");
+						this.showLevelUpNotification(result);
+					}
+				}
 
-        vscode.window.showInformationMessage(
-            `${emoji} ${combo}x COMBO! Keep going!`,
-        );
-    }
+				this.systems.statusBar.update();
+			}
 
-    showFatigueWarning() {
-        vscode.window.showWarningMessage(
-            "⏳ Slow down! XP gain reduced. Take a break or work on different files.",
-            "Got it",
-        );
-    }
+			this.diagnostics.set(uri.toString(), newCount);
+		}
 
-    async checkAchievements() {
-        const newAchievements = this.systems.achievements.checkUnlocks();
+		await this.checkAchievements();
+	}
 
-        for (const ach of newAchievements) {
-            this.systems.sounds.play("achievement");
+	async onCommit() {
+		if (supabase.isConfigured()) {
+			const { data, error } = await supabase.addXP(
+				this.userId,
+				50,
+				"commit",
+				{
+					timestamp: new Date().toISOString(),
+				},
+			);
 
-            vscode.window.showInformationMessage(
-                `🏆 Achievement Unlocked: ${ach.name} - ${ach.desc}`,
-            );
-        }
+			if (!error && data) {
+				if (data[0].level_up) {
+					this.systems.sounds.play("levelUp");
+					this.showLevelUpNotification({ level: data[0].new_level });
+				} else {
+					this.systems.sounds.play("commit");
+				}
+				this.systems.xp.storage.set("totalXp", data[0].new_xp);
+				this.systems.xp.storage.set("level", data[0].new_level);
+			}
+		} else {
+			const result = await this.systems.xp.addXP(50, "commit", {
+				timestamp: Date.now(),
+			});
 
-        if (newAchievements.length > 0) {
-            this.systems.sidebar?.update();
-        }
-    }
+			if (result && result.leveledUp) {
+				this.systems.sounds.play("levelUp");
+				this.showLevelUpNotification(result);
+			}
+		}
 
-    stop() {
-        this.disposables.forEach((d) => d.dispose());
-    }
+		this.systems.statusBar.update();
+
+		await this.checkAchievements();
+		await this.updateStreakIfNeeded();
+	}
+
+	// ─────────────────────────────────────────────────────────
+	// Achievement checking
+	// ─────────────────────────────────────────────────────────
+
+	async checkAchievements() {
+		try {
+			if (this.systems.sidebar) {
+				await this.systems.sidebar.checkAndNotifyAchievements();
+			} else {
+				const newUnlocks = this.systems.achievements.checkUnlocks();
+				for (const ach of newUnlocks) {
+					this.systems.sounds?.play("achievement");
+					vscode.window.showInformationMessage(
+						`🏆 Achievement Unlocked: ${ach.name} — ${ach.desc}`,
+					);
+				}
+				if (newUnlocks.length > 0) {
+					this.systems.sidebar?.update();
+				}
+			}
+		} catch (err) {
+			console.error("[ActivityTracker] checkAchievements error:", err);
+		}
+	}
+
+	// ─────────────────────────────────────────────────────────
+	// Git tracking
+	// ─────────────────────────────────────────────────────────
+
+	async initGitTracking() {
+		const gitExtension = vscode.extensions.getExtension("vscode.git");
+		if (!gitExtension) return;
+
+		try {
+			const git = await gitExtension.activate();
+			const api = git.getAPI(1);
+
+			let lastCommitCount = 0;
+
+			const checkCommits = () => {
+				const repos = api.repositories;
+				if (repos.length > 0) {
+					const repo = repos[0];
+					const currentCommitCount = repo.state.HEAD?.commit || 0;
+
+					if (
+						currentCommitCount > lastCommitCount &&
+						lastCommitCount > 0
+					) {
+						this.onCommit();
+					}
+
+					lastCommitCount = currentCommitCount;
+				}
+			};
+
+			api.onDidChangeState?.(checkCommits);
+			setInterval(checkCommits, 5000);
+			checkCommits();
+		} catch (err) {
+			console.log(
+				"[ActivityTracker] Git tracking not available:",
+				err.message,
+			);
+		}
+	}
+
+	// ─────────────────────────────────────────────────────────
+	// Language stats
+	// ─────────────────────────────────────────────────────────
+
+	updateLanguageStats(language) {
+		if (!language || language === "plaintext") return;
+
+		const stats = this.systems.storage.get("stats") || {};
+		if (!stats.languages) stats.languages = {};
+		stats.languages[language] = (stats.languages[language] || 0) + 1;
+		this.systems.storage.set("stats", stats);
+	}
+
+	updateDiagnostics() {
+		const uris = vscode.workspace.textDocuments
+			.filter((d) => d.uri.scheme === "file")
+			.map((d) => d.uri);
+
+		for (const uri of uris) {
+			const diags = vscode.languages.getDiagnostics(uri);
+			const errorCount = diags.filter(
+				(d) => d.severity === vscode.DiagnosticSeverity.Error,
+			).length;
+			this.diagnostics.set(uri.toString(), errorCount);
+		}
+	}
+
+	// ─────────────────────────────────────────────────────────
+	// Notifications
+	// ─────────────────────────────────────────────────────────
+
+	showLevelUpNotification(result) {
+		const progress = this.systems.xp.getProgress();
+		const nextUnlock = progress.nextUnlock;
+
+		let message = `🎉 LEVEL ${result.level}!`;
+		if (nextUnlock) {
+			message += ` Next unlock at Level ${nextUnlock.level}: ${nextUnlock.reward}`;
+		}
+
+		vscode.window
+			.showInformationMessage(message, "View Rewards")
+			.then((selection) => {
+				if (selection === "View Rewards") {
+					this.systems.sidebar?.reveal();
+				}
+			});
+	}
+
+	showComboNotification(combo) {
+		const now = Date.now();
+		if (now - this.lastComboNotification < 3000) return;
+		this.lastComboNotification = now;
+
+		const emojis = ["🔥", "⚡", "💥", "🚀", "👑"];
+		const emoji =
+			emojis[Math.min(Math.floor(combo / 10), emojis.length - 1)];
+
+		vscode.window.showInformationMessage(
+			`${emoji} ${combo}x COMBO! Keep going!`,
+		);
+	}
 }
 
 module.exports = ActivityTracker;

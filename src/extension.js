@@ -316,6 +316,31 @@ function showWelcomeBack() {
 	);
 }
 
+/**
+ * Check & Notify Achievements
+ */
+async function checkAchievements() {
+    const newUnlocks = systems.achievements.checkUnlocks();
+
+    for (const ach of newUnlocks) {
+        // show toast in the sidebar webview
+        systems.sidebar?.postMessage({
+            type: "achievementUnlocked",
+            achievement: ach,
+        });
+
+        // also show a VS Code notification
+        vscode.window.showInformationMessage(
+            `🎖 Achievement Unlocked: ${ach.name} — ${ach.desc}`
+        );
+
+        // play sound if not legendary (legendary has its own)
+        systems.sounds?.play(ach.legendary ? "achievement" : "levelup");
+    }
+
+    return newUnlocks;
+}
+
 module.exports = {
 	activate,
 	deactivate,
