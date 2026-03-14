@@ -26,6 +26,10 @@ async function activate(ctx) {
 
 	context = ctx;
 
+	// ✅ Register commands FIRST — before anything else
+	// This guarantees commands always work even if other systems fail
+	registerCommands(ctx);
+
 	try {
 		// ----------------------------
 		// Storage Initialization
@@ -49,11 +53,19 @@ async function activate(ctx) {
 		// Audio System
 		// ----------------------------
 
-		systems.sounds = new SoundEngine(context);
-		systems.soundHandler = new SoundEventHandler(systems.sounds);
-
-		const soundEvents = await systems.soundHandler.register();
-		ctx.subscriptions.push(...soundEvents);
+		try {
+			systems.sounds = new SoundEngine(context);
+			systems.soundHandler = new SoundEventHandler(systems.sounds);
+			const soundEvents = await systems.soundHandler.register();
+			ctx.subscriptions.push(...soundEvents);
+		} catch (soundErr) {
+			console.error(
+				"[CODE CORE] Audio system failed (non-fatal):",
+				soundErr,
+			);
+			// Provide a no-op fallback so other systems don't crash calling sounds.play()
+			systems.sounds = { play: () => {} };
+		}
 
 		// ----------------------------
 		// UI Systems
@@ -79,11 +91,8 @@ async function activate(ctx) {
 		systems.tracker.start();
 		systems.heartbeat.start();
 
-		// ----------------------------
-		// Commands
-		// ----------------------------
-
-		registerCommands(ctx);
+		// ✅ This was missing — initializes Supabase profile + syncs progress
+		await systems.tracker.onActivate();
 
 		// ----------------------------
 		// Daily Checks
@@ -104,7 +113,7 @@ async function activate(ctx) {
 	} catch (error) {
 		console.error("[CODE CORE] Activation failed:", error);
 		vscode.window.showErrorMessage(
-			"CODE CORE failed to start. Check developer console.",
+			`CODE CORE failed to start: ${error.message}. Check developer console (Help > Toggle Developer Tools).`,
 		);
 	}
 }
@@ -164,6 +173,12 @@ function registerCommands(ctx) {
  * Open Dashboard
  */
 async function openDashboard() {
+	if (!systems.sidebar) {
+		vscode.window.showWarningMessage(
+			"CODE CORE is still initializing, please wait.",
+		);
+		return;
+	}
 	await vscode.commands.executeCommand("workbench.view.extension.codecore");
 }
 
@@ -178,6 +193,11 @@ function toggleFocusMode() {
  * Reset All Progress
  */
 async function resetProgress() {
+	if (!systems.xp) {
+		vscode.window.showWarningMessage("CODE CORE is still initializing.");
+		return;
+	}
+
 	const answer = await vscode.window.showWarningMessage(
 		"Reset ALL CODE CORE progress?",
 		"Yes Reset Everything",
@@ -202,8 +222,12 @@ async function resetProgress() {
  * Open Mystery Box
  */
 async function openMysteryBox() {
-	const boxes = systems.xp.getMysteryBoxes();
+	if (!systems.xp) {
+		vscode.window.showWarningMessage("CODE CORE is still initializing.");
+		return;
+	}
 
+	const boxes = systems.xp.getMysteryBoxes();
 	const total = (boxes.bronze || 0) + (boxes.silver || 0) + (boxes.gold || 0);
 
 	if (total === 0) {
@@ -240,6 +264,11 @@ async function openMysteryBox() {
  * Show Active Boost
  */
 function useBoost() {
+	if (!systems.xp) {
+		vscode.window.showWarningMessage("CODE CORE is still initializing.");
+		return;
+	}
+
 	const boosts = systems.xp.getActiveBoosts();
 
 	if (!boosts.length) {
@@ -248,7 +277,6 @@ function useBoost() {
 	}
 
 	const multiplier = boosts.reduce((a, b) => a * b.multiplier, 1);
-
 	vscode.window.showInformationMessage(`Active XP Boost: ${multiplier}x`);
 }
 
@@ -256,6 +284,11 @@ function useBoost() {
  * Show Player Stats
  */
 function showStats() {
+	if (!systems.xp || !systems.streaks) {
+		vscode.window.showWarningMessage("CODE CORE is still initializing.");
+		return;
+	}
+
 	const progress = systems.xp.getProgress();
 	const streak = systems.streaks.getStreakStatus();
 
@@ -268,6 +301,11 @@ function showStats() {
  * Claim Daily Reward
  */
 async function claimDailyReward() {
+	if (!systems.xp || !systems.storage) {
+		vscode.window.showWarningMessage("CODE CORE is still initializing.");
+		return;
+	}
+
 	const today = new Date().toISOString().split("T")[0];
 	const last = systems.storage.get("lastDailyClaim");
 
@@ -320,25 +358,22 @@ function showWelcomeBack() {
  * Check & Notify Achievements
  */
 async function checkAchievements() {
-    const newUnlocks = systems.achievements.checkUnlocks();
+	const newUnlocks = systems.achievements.checkUnlocks();
 
-    for (const ach of newUnlocks) {
-        // show toast in the sidebar webview
-        systems.sidebar?.postMessage({
-            type: "achievementUnlocked",
-            achievement: ach,
-        });
+	for (const ach of newUnlocks) {
+		systems.sidebar?.postMessage({
+			type: "achievementUnlocked",
+			achievement: ach,
+		});
 
-        // also show a VS Code notification
-        vscode.window.showInformationMessage(
-            `🎖 Achievement Unlocked: ${ach.name} — ${ach.desc}`
-        );
+		vscode.window.showInformationMessage(
+			`🎖 Achievement Unlocked: ${ach.name} — ${ach.desc}`,
+		);
 
-        // play sound if not legendary (legendary has its own)
-        systems.sounds?.play(ach.legendary ? "achievement" : "levelup");
-    }
+		systems.sounds?.play(ach.legendary ? "achievement" : "levelup");
+	}
 
-    return newUnlocks;
+	return newUnlocks;
 }
 
 module.exports = {
